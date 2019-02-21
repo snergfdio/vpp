@@ -3,7 +3,7 @@ name: default
 
 steps:
 - name: vppbuild
-  image: index.docker.com/snergster/vpp-ubuntu18
+  image: index.docker.io/snergster/vpp-ubuntu18
   commands:
   - ls
   - make UNATTENDED=yes verify
