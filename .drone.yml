@@ -6,7 +6,7 @@ steps:
   image: index.docker.io/snergster/vpp-ubuntu18
   commands:
   - ls
-  - git pull
+  - git pull || true
   - make UNATTENDED=yes verify
 
 when:
