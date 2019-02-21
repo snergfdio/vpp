@@ -41,7 +41,7 @@ platform:
 
 steps:
 - name: vppbuild
-  image: arm64v8/ubuntu:18.04
+  image: index.docker.io/snergster/ubuntu18arm
   commands:
   - ls
   - git pull || true
