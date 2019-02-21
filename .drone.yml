@@ -8,7 +8,8 @@ steps:
   commands:
   - ls
   - git pull || true
-  - make UNATTENDED=yes verify
+  - make UNATTENDED=yes install-dep
+  - make pkg-deb
 
 when:
   event:
@@ -33,6 +34,10 @@ when:
 ---
 kind: pipeline
 name: ubuntuarm
+
+platform:
+  os: linux
+  arch: arm64
 
 steps:
 - name: vppbuild
