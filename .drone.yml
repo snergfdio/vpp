@@ -1,0 +1,12 @@
+kind: pipeline
+name: default
+
+steps:
+- name: vppbuild
+  image: snergster/vpp-ubuntu18
+  commands:
+  - make verify
+
+when:
+  event:
+  - push
