@@ -1,10 +1,42 @@
 kind: pipeline
-name: default
+name: ubuntu
 
 steps:
 - name: vppbuild
   image: index.docker.io/snergster/vpp-ubuntu18
-  shm_size: '1gb'
+  shm_size: 1024000000
+  commands:
+  - ls
+  - git pull || true
+  - make UNATTENDED=yes verify
+
+when:
+  event:
+  - push
+
+---
+kind: pipeline
+name: centos
+
+steps:
+- name: vppbuild
+  image: index.docker.io/snergster/vpp-centos
+  commands:
+  - ls
+  - git pull || true
+  - make UNATTENDED=yes verify
+
+when:
+  event:
+  - push
+
+---
+kind: pipeline
+name: ubuntuarm
+
+steps:
+- name: vppbuild
+  image: arm64v8/ubuntu:18.04
   commands:
   - ls
   - git pull || true
