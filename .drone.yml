@@ -3,9 +3,10 @@ name: default
 
 steps:
 - name: vppbuild
-  image: snergster/vpp-ubuntu18
+  image: index.docker.com/snergster/vpp-ubuntu18
   commands:
-  - make verify
+  - ls
+  - make UNATTENDED=yes verify
 
 when:
   event:
