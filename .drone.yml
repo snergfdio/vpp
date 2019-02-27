@@ -6,7 +6,7 @@ steps:
   image: index.docker.io/snergster/vpp-ubuntu18
   shm_size: 1024000000
   commands:
-  - ls
+  - ls -l
   - git pull || true
   - make UNATTENDED=yes install-dep
   - make pkg-deb
