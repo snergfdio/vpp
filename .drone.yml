@@ -45,6 +45,10 @@ steps:
   - ls
   - git pull || true
   - make UNATTENDED=yes verify
+  when:
+    instance:
+      include:
+        - drone.fdiopoc.net
 
 when:
   event:
