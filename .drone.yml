@@ -53,3 +53,5 @@ when:
     include:
       - drone.fdiopoc.net
       - 5346a318.ngrok.io
+      - foobar.ngrok.io
+      
