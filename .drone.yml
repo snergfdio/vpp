@@ -52,4 +52,4 @@ when:
   instance:
     include:
       - drone.fdiopoc.net
-      - *.ngrok.io
+      - 5346a318.ngrok.io
