@@ -9,14 +9,13 @@ steps:
   - git pull || true
   - make UNATTENDED=yes install-dep
   - make pkg-deb
-
-when:
-  event:
-  - push
-  instance:
-    exclude:
-      - drone.fdiopoc.net
-      - 5346a318.ngrok.io
+  when:
+    event:
+    - push
+    instance:
+      exclude:
+        - drone.fdiopoc.net
+        - 5346a318.ngrok.io
 ---
 kind: pipeline
 name: centos
@@ -28,14 +27,13 @@ steps:
   - ls
   - git pull || true
   - make UNATTENDED=yes verify
-
-when:
-  event:
-  - push
-  instance:
-    exclude:
-      - drone.fdiopoc.net
-      - 5346a318.ngrok.io
+  when:
+    event:
+    - push
+    instance:
+      exclude:
+        - drone.fdiopoc.net
+        - 5346a318.ngrok.io
 ---
 kind: pipeline
 name: ubuntuarm
@@ -51,12 +49,11 @@ steps:
   - ls -l
   - git pull || true
   - make UNATTENDED=yes verify
-
-when:
-  event:
-  - push
-  instance:
-    include:
-      - drone.fdiopoc.net
-      - 5346a318.ngrok.io
-      - foobar.ngrok.io
+  when:
+    event:
+    - push
+    instance:
+      include:
+        - drone.fdiopoc.net
+        - 5346a318.ngrok.io
+        - foobar.ngrok.io
