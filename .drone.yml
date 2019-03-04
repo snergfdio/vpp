@@ -4,7 +4,6 @@ name: ubuntu
 steps:
 - name: vppbuild
   image: index.docker.io/snergster/vpp-ubuntu18
-  shm_size: 1024000000
   commands:
   - ls -l
   - git pull || true
