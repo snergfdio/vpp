@@ -13,7 +13,10 @@ steps:
 when:
   event:
   - push
-
+  instance:
+    exclude:
+      - drone.fdiopoc.net
+      - 5346a318.ngrok.io
 ---
 kind: pipeline
 name: centos
@@ -29,7 +32,10 @@ steps:
 when:
   event:
   - push
-
+  instance:
+    exclude:
+      - drone.fdiopoc.net
+      - 5346a318.ngrok.io
 ---
 kind: pipeline
 name: ubuntuarm
@@ -54,4 +60,3 @@ when:
       - drone.fdiopoc.net
       - 5346a318.ngrok.io
       - foobar.ngrok.io
-      
