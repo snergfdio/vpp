@@ -2,9 +2,9 @@
 kind: pipeline
 name: ubuntuarm
 
-# platform:
-#   os: linux
-#   arch: arm64
+platform:
+  os: linux
+  arch: arm64
 # instance:
 #   include:
 #     - drone.fdiopoc.net
