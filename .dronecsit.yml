@@ -2,13 +2,13 @@
 kind: pipeline
 name: ubuntuarm
 
-platform:
-  os: linux
-  arch: arm64
-instance:
-  include:
-    - drone.fdiopoc.net
-    - 5346a318.ngrok.io
+# platform:
+#   os: linux
+#   arch: arm64
+# instance:
+#   include:
+#     - drone.fdiopoc.net
+#     - 5346a318.ngrok.io
 
 steps:
 - name: vppbuildarm
