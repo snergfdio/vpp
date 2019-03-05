@@ -12,6 +12,14 @@ jobs:
     steps:
       - checkout
       - run: make UNATTENDED=yes verify
+
+  ubuntu18:
+    docker:
+      - image: snergster/vpp-ubuntu18
+    steps:
+      - checkout
+      - run: make UNATTENDED=yes install-dep
+      - run: make pkg-deb
 workflows:
   version: 2
   build_and_test:
