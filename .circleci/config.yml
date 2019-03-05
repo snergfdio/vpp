@@ -1,14 +1,20 @@
 version: 2
 jobs:
-  build:
+  ubuntu16:
     docker:
-      - image: circleci/golang:1.9
+      - image: snergster/vpp-ubuntu16
     steps:
       - checkout
-      - setup_remote_docker:
-          docker_layer_caching: true
-      - run:
-          name: Build vpp using Docker
-          command: |
-            docker build . -f .circleci/docker/verify/Dockerfile.xenial
-
+      - run: make UNATTENDED=yes verify
+  centos7:
+    docker:
+      - image: snergster/vpp-centos
+    steps:
+      - checkout
+      - run: make UNATTENDED=yes verify
+workflows:
+  version: 2
+  build_and_test:
+    jobs:
+      - ubuntu16
+      - centos7
