@@ -12,7 +12,6 @@ jobs:
     steps:
       - checkout
       - run: make UNATTENDED=yes verify
-
   ubuntu18:
     docker:
       - image: snergster/vpp-ubuntu18
@@ -26,3 +25,4 @@ workflows:
     jobs:
       - ubuntu16
       - centos7
+      - ubuntu18
