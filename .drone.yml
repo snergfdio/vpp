@@ -42,6 +42,11 @@ platform:
   os: linux
   arch: arm64
 
+instance:
+  include:
+    - drone.fdiopoc.net
+    - 5346a318.ngrok.io
+    - foobar.ngrok.io
 steps:
 - name: vppbuild
   image: index.docker.io/snergster/ubuntu18arm
@@ -52,8 +57,4 @@ steps:
   when:
     event:
     - push
-    instance:
-      include:
-        - drone.fdiopoc.net
-        - 5346a318.ngrok.io
-        - foobar.ngrok.io
+
