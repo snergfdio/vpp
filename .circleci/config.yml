@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/golang:xenial
+      - image: circleci/golang:1.9
     steps:
       - checkout
       - setup_remote_docker:
