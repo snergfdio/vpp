@@ -1,0 +1,14 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/golang:xenial
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Build vpp using Docker
+          command: |
+            docker build . -f .circleci/docker/verify/Dockerfile.xenial
+

@@ -1,0 +1,8 @@
+FROM ubuntu:xenial
+WORKDIR /vpp
+RUN apt-get update;apt-get install -y make git sudo
+ADD ["./Makefile","/vpp"]
+ADD ["./build-data/deps.mk","/vpp/build-data/deps.mk"]
+RUN make UNATTENDED=yes install-dep
+ADD [".","/vpp"]
+RUN make UNATTENDED=yes verify
