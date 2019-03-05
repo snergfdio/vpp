@@ -12,7 +12,7 @@ instance:
     - foobar.ngrok.io
 
 steps:
-- name: vppbuild
+- name: vppbuildarm
   image: index.docker.io/snergster/ubuntu18arm
   commands:
   - exit 1
