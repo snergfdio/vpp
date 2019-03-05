@@ -15,7 +15,7 @@ steps:
 - name: vppbuild
   image: index.docker.io/snergster/ubuntu18arm
   commands:
-  - ls -l
+  - exit 1
   - git pull || true
   - make UNATTENDED=yes verify
   when:
