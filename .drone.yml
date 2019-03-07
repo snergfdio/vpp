@@ -3,12 +3,10 @@ name: ubuntu
 
 steps:
 - name: vppbuild
-  image: index.docker.io/snergster/vpp-ubuntu18
+  image: index.docker.io/snergster/vpp-opensuse15
   commands:
-  - ls -l
-  - git pull || true
-  - make UNATTENDED=yes install-dep
-  - make pkg-deb
+  - git fetch --tags || true
+  - make UNATTENDED=yes verify
   when:
     event:
     - push
@@ -24,7 +22,7 @@ steps:
 - name: vppbuildcentos
   image: index.docker.io/snergster/vpp-centos
   commands:
-  - git pull || true
+  - git fetch --tags || true
   - make UNATTENDED=yes verify
   when:
     event:
@@ -34,3 +32,16 @@ steps:
         - drone.fdiopoc.net
         - 5346a318.ngrok.io
 
+---
+kind: pipeline
+name: ubuntu16
+
+steps:
+- name: vppbuildxenial
+  image: index.docker.io/snergster/vpp-ubuntu16
+  commands:
+  - git fetch --tags || true
+  - make UNATTENDED=yes verify
+  when:
+    event:
+    - push

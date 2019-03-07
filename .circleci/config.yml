@@ -19,6 +19,12 @@ jobs:
       - checkout
       - run: make UNATTENDED=yes install-dep
       - run: make pkg-deb
+  opensuse15:
+    docker:
+      - image: snergster/vpp-opensuse15
+    steps:
+      - checkout
+      - run: make UNATTENDED=yes verify
 workflows:
   version: 2
   build_and_test:
@@ -26,3 +32,4 @@ workflows:
       - ubuntu16
       - centos7
       - ubuntu18
+      - opensuse15

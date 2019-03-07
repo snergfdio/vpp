@@ -12,6 +12,15 @@ platform:
 #     - 5346a318.ngrok.io
 
 steps:
+- name: checkstyle
+  image: index.docker.io/snergster/vpp-ubuntu18
+  commands:
+    - git fetch --tags || true
+    - build-root/scripts/checkstyle.sh
+    - make test-checkstyle
+  when:
+    event:
+      -push
 - name: vppbuildtest
   image: index.docker.io/snergster/vpp-ubuntu18
   privileged: true
