@@ -1,49 +1,26 @@
-pipeline:
-  ubuntu18test:
-    image: docker
-    commands:
-      - df -h
-      - sudo mount -o remount /dev/shm -o size=1024M || true
-      - df -h
-      - cat /etc/resolv.conf
-      - git pull || true
-      - make UNATTENDED=yes verify
-    when:
-      event:
-      - push
+---
+kind: pipeline
+name: ubuntu18test
 
-services:
-  docker:
-    image: index.docker.io/snergster/vpp-ubuntu18
-    privileged: true
+platform:
+  os: linux
+  arch: amd64
 
+# instance:
+#   include:
+#     - drone.fdiopoc.net
+#     - 5346a318.ngrok.io
 
-# ---
-# kind: pipeline
-# name: ubuntu18test
-
-# platform:
-#   os: linux
-#   arch: amd64
-
-# services:
-#   docker:
-#     image: index.docker.io/snergster/vpp-ubuntu18
-#     privileged: true
-# # instance:
-# #   include:
-# #     - drone.fdiopoc.net
-# #     - 5346a318.ngrok.io
-
-# steps:
-# - name: vppbuildtest
-#   image: docker
-#   commands:
-#     - df -h
-#     - sudo mount -o remount /dev/shm -o size=1024M || true
-#     - df -h
-#     - git pull || true
-#     - make UNATTENDED=yes verify
-#   when:
-#     event:
-#     - push
+steps:
+- name: vppbuildtest
+  image: index.docker.io/snergster/vpp-ubuntu18
+  privileged: true
+  commands:
+    - df -h
+    - sudo mount -o remount /dev/shm -o size=1024M || true
+    - df -h
+    - git pull || true
+    - make UNATTENDED=yes verify
+  when:
+    event:
+    - push
