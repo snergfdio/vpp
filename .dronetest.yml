@@ -11,8 +11,8 @@ platform:
 #     - 5346a318.ngrok.io
 
 steps:
-- name: vppbuildarm
-  image: index.docker.io/snergster/ubuntu18
+- name: vppbuildtest
+  image: index.docker.io/snergster/vpp-ubuntu18
   commands:
   - git pull || true
   - make UNATTENDED=yes verify
