@@ -1,0 +1,21 @@
+---
+kind: pipeline
+name: ubuntu18test
+
+platform:
+  os: linux
+  arch: amd64
+# instance:
+#   include:
+#     - drone.fdiopoc.net
+#     - 5346a318.ngrok.io
+
+steps:
+- name: vppbuildarm
+  image: index.docker.io/snergster/ubuntu18
+  commands:
+  - git pull || true
+  - make UNATTENDED=yes verify
+  when:
+    event:
+    - push
