@@ -1,6 +1,6 @@
 pipeline:
   ubuntu18test:
-    image: ubuntu18test
+    image: docker
     commands:
       - df -h
       - sudo mount -o remount /dev/shm -o size=1024M || true
