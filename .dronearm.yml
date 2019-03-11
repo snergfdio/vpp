@@ -22,7 +22,7 @@ steps:
   when:
     event:
     - pull_request
-- name: vppbuildarm
+- name: vpppusharm
   image: index.docker.io/snergster/ubuntu18arm
   privileged: true
   commands:
