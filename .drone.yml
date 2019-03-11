@@ -10,10 +10,15 @@ steps:
   when:
     event:
     - push
-    instance:
-      exclude:
-        - drone.fdiopoc.net
-        - 5346a318.ngrok.io
+    - pull_request
+- name: vppbuild
+  image: index.docker.io/snergster/vpp-opensuse15
+  commands:
+  - echo 'push test'
+  when:
+    event:
+    - push
+
 ---
 kind: pipeline
 name: centos
@@ -26,12 +31,14 @@ steps:
   - make UNATTENDED=yes verify
   when:
     event:
+    - pull_request
+- name: vppbuildcentos
+  image: index.docker.io/snergster/vpp-centos
+  commands:
+  - make UNATTENDED=yes verify
+  when:
+    event:
     - push
-    instance:
-      exclude:
-        - drone.fdiopoc.net
-        - 5346a318.ngrok.io
-
 ---
 kind: pipeline
 name: ubuntu16

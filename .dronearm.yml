@@ -21,4 +21,12 @@ steps:
   - make UNATTENDED=yes pkg-deb
   when:
     event:
+    - pull_request
+- name: vppbuildarm
+  image: index.docker.io/snergster/ubuntu18arm
+  privileged: true
+  commands:
+  - echo 'push only'
+  when:
+    event:
     - push

@@ -21,6 +21,7 @@ steps:
   when:
     event:
       -push
+      -pull_request
 - name: vppbuildtest
   image: index.docker.io/snergster/vpp-ubuntu18
   privileged: true
@@ -29,6 +30,21 @@ steps:
     - grep search /etc/resolv.conf || true
     - git fetch --tags || true
     - make UNATTENDED=yes verify
+  when:
+    event:
+    - pull_request
+- name: vpppush
+  environment:
+    REPO:
+      from_secret: repo
+    token:
+      from_secret: token
+  image: index.docker.io/snergster/vpp-ubuntu18
+  privileged: true
+  commands:
+    - echo 'push only'
+    - chmod 755 /usr/local/bin/pc_push || true
+    - /usr/local/bin/pc_push || true
   when:
     event:
     - push
