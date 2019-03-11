@@ -11,7 +11,7 @@ steps:
     event:
     - push
     - pull_request
-- name: vppbuild
+- name: vppopensusepushonly
   image: index.docker.io/snergster/vpp-opensuse15
   commands:
   - echo 'push test'
@@ -24,7 +24,7 @@ kind: pipeline
 name: centos
 
 steps:
-- name: vppbuildcentos
+- name: vppbuildpullcentos
   image: index.docker.io/snergster/vpp-centos
   commands:
   - git fetch --tags || true
@@ -32,7 +32,7 @@ steps:
   when:
     event:
     - pull_request
-- name: vppbuildcentos
+- name: vppbuildpushcentos
   image: index.docker.io/snergster/vpp-centos
   commands:
   - make UNATTENDED=yes verify
