@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+
+import abc
+import six
 import unittest
 
 from scapy.fields import BitField, ByteField, FlagsField, IntField
@@ -7,7 +10,8 @@ from scapy.layers.inet import IP, UDP, Ether
 from scapy.layers.inet6 import IPv6
 
 from framework import VppTestCase, VppTestRunner
-from lisp import *
+from lisp import VppLocalMapping, VppLispAdjacency, VppLispLocator, \
+    VppLispLocatorSet, VppRemoteMapping
 from util import ppp, ForeignAddressFactory
 
 # From py_lispnetworking.lisp.py:  # GNU General Public License v2.0
@@ -28,6 +32,7 @@ bind_layers(LISP_GPE_Header, IPv6, next_proto=2)
 bind_layers(LISP_GPE_Header, Ether, next_proto=3)
 
 
+@six.add_metaclass(abc.ABCMeta)
 class Driver(object):
 
     config_order = ['locator-sets',
@@ -61,7 +66,7 @@ class Driver(object):
                   Raw(payload))
         return packet
 
-    @abstractmethod
+    @abc.abstractmethod
     def run(self):
         """ testing procedure """
         pass
@@ -149,18 +154,18 @@ class TestLisp(VppTestCase):
 
         self.deid_ip4_net = self.faf.net
         self.deid_ip4 = self.faf.get_ip4()
-        self.seid_ip4 = '{}/{}'.format(self.pg0.local_ip4, 32)
+        self.seid_ip4 = '{!s}/{!s}'.format(self.pg0.local_ip4, 32)
         self.rloc_ip4 = self.pg1.remote_ip4n
 
         test_cases = [
             {
                 'name': 'basic ip4 over ip4',
-                'locator-sets': [VppLispLocatorSet(self, 'ls-4o4')],
+                'locator-sets': [VppLispLocatorSet(self, b'ls-4o4')],
                 'locators': [
-                    VppLispLocator(self, self.pg1.sw_if_index, 'ls-4o4')
+                    VppLispLocator(self, self.pg1.sw_if_index, b'ls-4o4')
                 ],
                 'local-mappings': [
-                    VppLocalMapping(self, self.seid_ip4, 'ls-4o4')
+                    VppLocalMapping(self, self.seid_ip4, b'ls-4o4')
                 ],
                 'remote-mappings': [
                     VppRemoteMapping(self, self.deid_ip4_net,

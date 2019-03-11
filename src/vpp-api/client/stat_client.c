@@ -141,16 +141,19 @@ stat_segment_connect_r (const char *socket_name, stat_client_main_t * sm)
 
   if (fstat (mfd, &st) == -1)
     {
+      close (mfd);
       perror ("mmap fstat failed");
       return -4;
     }
   if ((memaddr =
        mmap (NULL, st.st_size, PROT_READ, MAP_SHARED, mfd, 0)) == MAP_FAILED)
     {
+      close (mfd);
       perror ("mmap map failed");
       return -5;
     }
 
+  close (mfd);
   sm->memory_size = st.st_size;
   sm->shared_header = memaddr;
   sm->directory_vector =
@@ -252,8 +255,29 @@ copy_data (stat_segment_directory_entry_t * ep, stat_client_main_t * sm)
       result.error_value = error_base[ep->index];
       break;
 
+    case STAT_DIR_TYPE_NAME_VECTOR:
+      if (ep->offset == 0)
+	return result;
+      uint8_t **name_vector =
+	stat_segment_pointer (sm->shared_header, ep->offset);
+      result.name_vector = vec_dup (name_vector);
+      offset_vector =
+	stat_segment_pointer (sm->shared_header, ep->offset_vector);
+      for (i = 0; i < vec_len (name_vector); i++)
+	{
+	  if (offset_vector[i])
+	    {
+	      u8 *name =
+		stat_segment_pointer (sm->shared_header, offset_vector[i]);
+	      result.name_vector[i] = vec_dup (name);
+	    }
+	  else
+	    result.name_vector[i] = 0;
+	}
+      break;
+
     default:
-      fprintf (stderr, "Unknown type: %d", ep->type);
+      fprintf (stderr, "Unknown type: %d\n", ep->type);
     }
   return result;
 }

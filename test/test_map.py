@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
 import unittest
-import socket
 
 from framework import VppTestCase, VppTestRunner
-from vpp_ip import *
+from vpp_ip import DpoProto
 from vpp_ip_route import VppIpRoute, VppRoutePath
-from ipaddress import IPv6Network, IPv4Network
+
+import scapy.compat
 from scapy.layers.l2 import Ether, Raw
 from scapy.layers.inet import IP, UDP, ICMP, TCP, fragment
 from scapy.layers.inet6 import IPv6, ICMPv6TimeExceeded
@@ -79,10 +79,12 @@ class TestMAP(VppTestCase):
         map_dst = '2001::/64'
         map_src = '3000::1/128'
         client_pfx = '192.168.0.0/16'
-        self.vapi.map_add_domain(map_dst, map_src, client_pfx)
+        self.vapi.map_add_domain(map_dst, client_pfx, map_src)
 
         # Enable MAP on interface.
-        self.vapi.map_if_enable_disable(1, self.pg0.sw_if_index, 0)
+        self.vapi.map_if_enable_disable(is_enable=1,
+                                        sw_if_index=self.pg0.sw_if_index,
+                                        is_translation=0)
 
         # Ensure MAP doesn't steal all packets!
         v4 = (Ether(dst=self.pg0.local_mac, src=self.pg0.remote_mac) /
@@ -106,7 +108,9 @@ class TestMAP(VppTestCase):
         self.send_and_assert_encapped(v4, "3000::1", "2001::c0a8:0:0")
 
         # Enable MAP on interface.
-        self.vapi.map_if_enable_disable(1, self.pg1.sw_if_index, 0)
+        self.vapi.map_if_enable_disable(is_enable=1,
+                                        sw_if_index=self.pg1.sw_if_index,
+                                        is_translation=0)
 
         # Ensure MAP doesn't steal all packets
         v6 = (Ether(dst=self.pg1.local_mac, src=self.pg1.remote_mac) /
@@ -185,7 +189,7 @@ class TestMAP(VppTestCase):
         self.vapi.ppcli("map params pre-resolve del ip6-nh 4001::1")
 
     def validate(self, rx, expected):
-        self.assertEqual(rx, expected.__class__(str(expected)))
+        self.assertEqual(rx, expected.__class__(scapy.compat.raw(expected)))
 
     def payload(self, len):
         return 'x' * len
@@ -200,12 +204,16 @@ class TestMAP(VppTestCase):
         map_src = '1234:5678:90ab:cdef::/64'
         ip4_pfx = '192.168.0.0/24'
 
-        self.vapi.map_add_domain(map_dst, map_src, ip4_pfx,
-                                 16, 6, 4)
+        self.vapi.map_add_domain(map_dst, ip4_pfx, map_src,
+                                 16, 6, 4, mtu=1500)
 
         # Enable MAP-T on interfaces.
-        self.vapi.map_if_enable_disable(1, self.pg0.sw_if_index, 1)
-        self.vapi.map_if_enable_disable(1, self.pg1.sw_if_index, 1)
+        self.vapi.map_if_enable_disable(is_enable=1,
+                                        sw_if_index=self.pg0.sw_if_index,
+                                        is_translation=1)
+        self.vapi.map_if_enable_disable(is_enable=1,
+                                        sw_if_index=self.pg1.sw_if_index,
+                                        is_translation=1)
 
         # Ensure MAP doesn't steal all packets!
         v4 = (Ether(dst=self.pg0.local_mac, src=self.pg0.remote_mac) /
@@ -363,7 +371,7 @@ class TestMAP(VppTestCase):
         p6_translated = (IPv6(src="1234:5678:90ab:cdef:ac:1001:200:0",
                               dst="2001:db8:1f0::c0a8:1:f") / payload)
         p6_translated.hlim -= 1
-        p6_translated['TCP'].options = [('MSS', 1300)]
+        p6_translated[TCP].options = [('MSS', 1300)]
         rx = self.send_and_expect(self.pg0, p4*1, self.pg1)
         for p in rx:
             self.validate(p[1], p6_translated)
@@ -377,7 +385,7 @@ class TestMAP(VppTestCase):
                             dst=self.pg0.remote_ip4) / payload)
         p4_translated.id = 0
         p4_translated.ttl -= 1
-        p4_translated['TCP'].options = [('MSS', 1300)]
+        p4_translated[TCP].options = [('MSS', 1300)]
         rx = self.send_and_expect(self.pg1, p6*1, self.pg0)
         for p in rx:
             self.validate(p[1], p4_translated)

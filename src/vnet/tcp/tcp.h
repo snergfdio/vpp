@@ -303,6 +303,8 @@ typedef struct _tcp_connection
   tcp_options_t rcv_opts;	/**< Rx options for connection */
 
   sack_block_t *snd_sacks;	/**< Vector of SACKs to send. XXX Fixed size? */
+  u8 snd_sack_pos;		/**< Position in vec of first block to send */
+  sack_block_t *snd_sacks_fl;	/**< Vector for building new list */
   sack_scoreboard_t sack_sb;	/**< SACK "scoreboard" that tracks holes */
 
   u16 rcv_dupacks;	/**< Number of DUPACKs received */
@@ -513,6 +515,14 @@ extern vlib_node_registration_t tcp4_input_node;
 extern vlib_node_registration_t tcp6_input_node;
 extern vlib_node_registration_t tcp4_output_node;
 extern vlib_node_registration_t tcp6_output_node;
+extern vlib_node_registration_t tcp4_established_node;
+extern vlib_node_registration_t tcp6_established_node;
+extern vlib_node_registration_t tcp4_syn_sent_node;
+extern vlib_node_registration_t tcp6_syn_sent_node;
+extern vlib_node_registration_t tcp4_rcv_process_node;
+extern vlib_node_registration_t tcp6_rcv_process_node;
+extern vlib_node_registration_t tcp4_listen_node;
+extern vlib_node_registration_t tcp6_listen_node;
 
 always_inline tcp_main_t *
 vnet_get_tcp_main ()
@@ -810,7 +820,8 @@ tcp_set_time_now (tcp_worker_ctx_t * wrk)
   return wrk->time_now;
 }
 
-u32 tcp_push_header (tcp_connection_t * tconn, vlib_buffer_t * b);
+u32 tcp_session_push_header (transport_connection_t * tconn,
+			     vlib_buffer_t * b);
 
 void tcp_connection_timers_init (tcp_connection_t * tc);
 void tcp_connection_timers_reset (tcp_connection_t * tc);
@@ -932,7 +943,7 @@ tcp_timer_is_active (tcp_connection_t * tc, tcp_timers_e timer)
 
 #define tcp_validate_txf_size(_tc, _a) 					\
   ASSERT(_tc->state != TCP_STATE_ESTABLISHED 				\
-	 || session_tx_fifo_max_dequeue (&_tc->connection) >= _a)
+	 || transport_max_tx_dequeue (&_tc->connection) >= _a)
 
 void tcp_rcv_sacks (tcp_connection_t * tc, u32 ack);
 u8 *tcp_scoreboard_replay (u8 * s, tcp_connection_t * tc, u8 verbose);

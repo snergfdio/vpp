@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 
 import unittest
-from logging import *
+
+import scapy.compat
+from scapy.packet import Raw
+from scapy.layers.l2 import Ether, Dot1Q, GRE
+from scapy.layers.inet import IP, UDP
+from scapy.layers.inet6 import IPv6
+from scapy.volatile import RandMAC, RandIP
 
 from framework import VppTestCase, VppTestRunner
 from vpp_sub_interface import VppDot1QSubint
@@ -9,13 +15,6 @@ from vpp_gre_interface import VppGreInterface, VppGre6Interface
 from vpp_ip import DpoProto
 from vpp_ip_route import VppIpRoute, VppRoutePath, VppIpTable
 from vpp_papi_provider import L2_VTR_OP
-
-from scapy.packet import Raw
-from scapy.layers.l2 import Ether, Dot1Q, GRE
-from scapy.layers.inet import IP, UDP
-from scapy.layers.inet6 import IPv6
-from scapy.volatile import RandMAC, RandIP
-
 from util import ppp, ppc
 
 
@@ -148,7 +147,8 @@ class TestGRE(VppTestCase):
                  GRE() /
                  Ether(dst=RandMAC('*:*:*:*:*:*'),
                        src=RandMAC('*:*:*:*:*:*')) /
-                 IP(src=str(RandIP()), dst=str(RandIP())) /
+                 IP(src=scapy.compat.raw(RandIP()),
+                    dst=scapy.compat.raw(RandIP())) /
                  UDP(sport=1234, dport=1234) /
                  Raw(payload))
             info.data = p.copy()
@@ -167,7 +167,8 @@ class TestGRE(VppTestCase):
                  Ether(dst=RandMAC('*:*:*:*:*:*'),
                        src=RandMAC('*:*:*:*:*:*')) /
                  Dot1Q(vlan=vlan) /
-                 IP(src=str(RandIP()), dst=str(RandIP())) /
+                 IP(src=scapy.compat.raw(RandIP()),
+                    dst=scapy.compat.raw(RandIP())) /
                  UDP(sport=1234, dport=1234) /
                  Raw(payload))
             info.data = p.copy()
@@ -219,7 +220,7 @@ class TestGRE(VppTestCase):
                 self.assertEqual(rx_ip.src, tunnel_src)
                 self.assertEqual(rx_ip.dst, tunnel_dst)
 
-                rx_gre = GRE(str(rx_ip[IPv6].payload))
+                rx_gre = GRE(scapy.compat.raw(rx_ip[IPv6].payload))
                 rx_ip = rx_gre[IPv6]
 
                 self.assertEqual(rx_ip.src, tx_ip.src)
@@ -245,7 +246,7 @@ class TestGRE(VppTestCase):
                 self.assertEqual(rx_ip.src, tunnel_src)
                 self.assertEqual(rx_ip.dst, tunnel_dst)
 
-                rx_gre = GRE(str(rx_ip[IPv6].payload))
+                rx_gre = GRE(scapy.compat.raw(rx_ip[IPv6].payload))
                 tx_ip = tx[IP]
                 rx_ip = rx_gre[IP]
 
@@ -272,7 +273,7 @@ class TestGRE(VppTestCase):
                 self.assertEqual(rx_ip.src, tunnel_src)
                 self.assertEqual(rx_ip.dst, tunnel_dst)
 
-                rx_gre = GRE(str(rx_ip[IP].payload))
+                rx_gre = GRE(scapy.compat.raw(rx_ip[IP].payload))
                 rx_ip = rx_gre[IPv6]
                 tx_ip = tx[IPv6]
 
@@ -826,12 +827,12 @@ class TestGRE(VppTestCase):
         # Configure both to pop thier respective VLAN tags,
         # so that during the x-coonect they will subsequently push
         #
-        self.vapi.sw_interface_set_l2_tag_rewrite(gre_if_12.sw_if_index,
-                                                  L2_VTR_OP.L2_POP_1,
-                                                  12)
-        self.vapi.sw_interface_set_l2_tag_rewrite(gre_if_11.sw_if_index,
-                                                  L2_VTR_OP.L2_POP_1,
-                                                  11)
+        self.vapi.l2_interface_vlan_tag_rewrite(gre_if_12.sw_if_index,
+                                                L2_VTR_OP.L2_POP_1,
+                                                12)
+        self.vapi.l2_interface_vlan_tag_rewrite(gre_if_11.sw_if_index,
+                                                L2_VTR_OP.L2_POP_1,
+                                                11)
 
         #
         # Send traffic in both directiond - expect the VLAN tags to

@@ -229,7 +229,7 @@ map_add_del_psid (u32 map_domain_index, u16 psid, ip6_address_t * tep,
 
 #ifdef MAP_SKIP_IP6_LOOKUP
 /**
- * Pre-resolvd per-protocol global next-hops
+ * Pre-resolved per-protocol global next-hops
  */
 map_main_pre_resolved_t pre_resolved[FIB_PROTOCOL_MAX];
 
@@ -351,14 +351,17 @@ map_fib_unresolve (map_main_pre_resolved_t * pr,
     .fp_addr = *addr,
   };
 
-  fib_entry_child_remove (pr->fei, pr->sibling);
+  if (pr->fei != FIB_NODE_INDEX_INVALID)
+    {
+      fib_entry_child_remove (pr->fei, pr->sibling);
 
-  fib_table_entry_special_remove (0,	// default fib
-				  &pfx, FIB_SOURCE_RR);
-  dpo_reset (&pr->dpo);
+      fib_table_entry_special_remove (0,	// default fib
+				      &pfx, FIB_SOURCE_RR);
+      dpo_reset (&pr->dpo);
 
-  pr->fei = FIB_NODE_INDEX_INVALID;
-  pr->sibling = FIB_NODE_INDEX_INVALID;
+      pr->fei = FIB_NODE_INDEX_INVALID;
+      pr->sibling = FIB_NODE_INDEX_INVALID;
+    }
 }
 
 void
@@ -1048,7 +1051,7 @@ show_map_stats_command_fn (vlib_main_t * vm, unformat_input_t * input,
   map_main_t *mm = &map_main;
   map_domain_t *d;
   int domains = 0, rules = 0, domaincount = 0, rulecount = 0;
-  if (pool_elts (mm->domains) <= 1)
+  if (pool_elts (mm->domains) == 0)
     {
       vlib_cli_output (vm, "No MAP domains are configured...");
       return 0;
@@ -2244,12 +2247,6 @@ map_init (vlib_main_t * vm)
 #ifdef MAP_SKIP_IP6_LOOKUP
   fib_node_register_type (FIB_NODE_TYPE_MAP_E, &map_vft);
 #endif
-
-  /* Create empty domain that's used in case of error */
-  map_domain_t *d;
-  pool_get_aligned (mm->domains, d, CLIB_CACHE_LINE_BYTES);
-  memset (d, 0, sizeof (*d));
-  d->ip6_src_len = 64;
 
   /* LPM lookup tables */
   mm->ip4_prefix_tbl = lpm_table_init (LPM_TYPE_KEY32);

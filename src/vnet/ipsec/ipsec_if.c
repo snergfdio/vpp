@@ -19,6 +19,7 @@
 #include <vnet/api_errno.h>
 #include <vnet/ip/ip.h>
 #include <vnet/fib/fib.h>
+#include <vnet/udp/udp.h>
 
 #include <vnet/ipsec/ipsec.h>
 #include <vnet/ipsec/esp.h>
@@ -70,92 +71,88 @@ format_ipsec_if_tx_trace (u8 * s, va_list * args)
   return s;
 }
 
-static uword
-ipsec_if_tx_node_fn (vlib_main_t * vm, vlib_node_runtime_t * node,
-		     vlib_frame_t * from_frame)
+static void
+ipsec_output_trace (vlib_main_t * vm,
+		    vlib_node_runtime_t * node,
+		    vlib_frame_t * frame, const ipsec_tunnel_if_t * t0)
 {
   ipsec_main_t *im = &ipsec_main;
-  vnet_main_t *vnm = im->vnet_main;
-  vnet_interface_main_t *vim = &vnm->interface_main;
-  u32 *from, *to_next = 0, next_index;
-  u32 n_left_from, sw_if_index0, last_sw_if_index = ~0;
-  u32 thread_index = vm->thread_index;
-  u32 n_bytes = 0, n_packets = 0;
+  u32 *from, n_left;
 
-  from = vlib_frame_vector_args (from_frame);
-  n_left_from = from_frame->n_vectors;
-  next_index = node->cached_next_index;
+  n_left = frame->n_vectors;
+  from = vlib_frame_vector_args (frame);
 
-  while (n_left_from > 0)
+  while (n_left > 0)
     {
-      u32 n_left_to_next;
+      vlib_buffer_t *b0;
 
-      vlib_get_next_frame (vm, node, next_index, to_next, n_left_to_next);
+      b0 = vlib_get_buffer (vm, from[0]);
 
-      while (n_left_from > 0 && n_left_to_next > 0)
+      if (b0->flags & VLIB_BUFFER_IS_TRACED)
 	{
-	  u32 bi0, next0, len0;
-	  vlib_buffer_t *b0;
-	  ipsec_tunnel_if_t *t0;
-	  vnet_hw_interface_t *hi0;
-
-	  bi0 = to_next[0] = from[0];
-	  from += 1;
-	  n_left_from -= 1;
-	  to_next += 1;
-	  n_left_to_next -= 1;
-	  b0 = vlib_get_buffer (vm, bi0);
-	  sw_if_index0 = vnet_buffer (b0)->sw_if_index[VLIB_TX];
-	  hi0 = vnet_get_sup_hw_interface (vnm, sw_if_index0);
-	  t0 = pool_elt_at_index (im->tunnel_interfaces, hi0->dev_instance);
-	  vnet_buffer (b0)->ipsec.sad_index = t0->output_sa_index;
-
-	  /* 0, tx-node next[0] was added by vlib_node_add_next_with_slot */
-	  next0 = 0;
-
-	  len0 = vlib_buffer_length_in_chain (vm, b0);
-
-	  if (PREDICT_TRUE (sw_if_index0 == last_sw_if_index))
-	    {
-	      n_packets++;
-	      n_bytes += len0;
-	    }
-	  else
-	    {
-	      vlib_increment_combined_counter (vim->combined_sw_if_counters +
-					       VNET_INTERFACE_COUNTER_TX,
-					       thread_index, sw_if_index0,
-					       n_packets, n_bytes);
-	      last_sw_if_index = sw_if_index0;
-	      n_packets = 1;
-	      n_bytes = len0;
-	    }
-
-	  if (PREDICT_FALSE (b0->flags & VLIB_BUFFER_IS_TRACED))
-	    {
-	      ipsec_if_tx_trace_t *tr =
-		vlib_add_trace (vm, node, b0, sizeof (*tr));
-	      ipsec_sa_t *sa0 =
-		pool_elt_at_index (im->sad, t0->output_sa_index);
-	      tr->spi = sa0->spi;
-	      tr->seq = sa0->seq;
-	    }
-
-	  vlib_validate_buffer_enqueue_x1 (vm, node, next_index, to_next,
-					   n_left_to_next, bi0, next0);
+	  ipsec_if_tx_trace_t *tr =
+	    vlib_add_trace (vm, node, b0, sizeof (*tr));
+	  ipsec_sa_t *sa0 = pool_elt_at_index (im->sad, t0->output_sa_index);
+	  tr->spi = sa0->spi;
+	  tr->seq = sa0->seq;
 	}
-      vlib_put_next_frame (vm, node, next_index, n_left_to_next);
-    }
 
-  if (last_sw_if_index != ~0)
+      from += 1;
+      n_left -= 1;
+    }
+}
+
+VNET_DEVICE_CLASS_TX_FN (ipsec_device_class) (vlib_main_t * vm,
+					      vlib_node_runtime_t * node,
+					      vlib_frame_t * frame)
+{
+  ipsec_main_t *im = &ipsec_main;
+  u32 *from, n_left;
+  vnet_interface_output_runtime_t *rd = (void *) node->runtime_data;
+  const ipsec_tunnel_if_t *t0;
+  vlib_buffer_t *bufs[VLIB_FRAME_SIZE], **b;
+  u16 nexts[VLIB_FRAME_SIZE];
+
+  from = vlib_frame_vector_args (frame);
+  t0 = pool_elt_at_index (im->tunnel_interfaces, rd->dev_instance);
+  n_left = frame->n_vectors;
+  b = bufs;
+
+  /* All going to encrypt */
+  clib_memset (nexts, 0, sizeof (nexts));
+
+  if (node->flags & VLIB_NODE_FLAG_TRACE)
+    ipsec_output_trace (vm, node, frame, t0);
+
+  vlib_get_buffers (vm, from, bufs, n_left);
+
+  while (n_left >= 8)
     {
-      vlib_increment_combined_counter (vim->combined_sw_if_counters +
-				       VNET_INTERFACE_COUNTER_TX,
-				       thread_index,
-				       last_sw_if_index, n_packets, n_bytes);
+      /* Prefetch the buffer header for the N+2 loop iteration */
+      vlib_prefetch_buffer_header (b[4], STORE);
+      vlib_prefetch_buffer_header (b[5], STORE);
+      vlib_prefetch_buffer_header (b[6], STORE);
+      vlib_prefetch_buffer_header (b[7], STORE);
+
+      vnet_buffer (b[0])->ipsec.sad_index = t0->output_sa_index;
+      vnet_buffer (b[1])->ipsec.sad_index = t0->output_sa_index;
+      vnet_buffer (b[2])->ipsec.sad_index = t0->output_sa_index;
+      vnet_buffer (b[3])->ipsec.sad_index = t0->output_sa_index;
+
+      n_left -= 4;
+      b += 4;
+    }
+  while (n_left > 0)
+    {
+      vnet_buffer (b[0])->ipsec.sad_index = t0->output_sa_index;
+
+      n_left -= 1;
+      b += 1;
     }
 
-  return from_frame->n_vectors;
+  vlib_buffer_enqueue_to_next (vm, node, from, nexts, frame->n_vectors);
+
+  return frame->n_vectors;
 }
 
 
@@ -170,6 +167,7 @@ ipsec_admin_up_down_function (vnet_main_t * vnm, u32 hw_if_index, u32 flags)
 
   hi = vnet_get_hw_interface (vnm, hw_if_index);
   t = pool_elt_at_index (im->tunnel_interfaces, hi->hw_instance);
+  t->flags = flags;
 
   if (flags & VNET_SW_INTERFACE_FLAG_ADMIN_UP)
     {
@@ -214,12 +212,11 @@ ipsec_admin_up_down_function (vnet_main_t * vnm, u32 hw_if_index, u32 flags)
 
 
 /* *INDENT-OFF* */
-VNET_DEVICE_CLASS (ipsec_device_class, static) =
+VNET_DEVICE_CLASS (ipsec_device_class) =
 {
   .name = "IPSec",
   .format_device_name = format_ipsec_name,
   .format_tx_trace = format_ipsec_if_tx_trace,
-  .tx_function = ipsec_if_tx_node_fn,
   .tx_function_n_errors = IPSEC_IF_TX_N_ERROR,
   .tx_function_error_strings = ipsec_if_tx_error_strings,
   .admin_up_down_function = ipsec_admin_up_down_function,
@@ -290,8 +287,7 @@ ipsec_add_del_tunnel_if_internal (vnet_main_t * vnm,
       if (p)
 	return VNET_API_ERROR_INVALID_VALUE;
 
-      pool_get_aligned (im->tunnel_interfaces, t, CLIB_CACHE_LINE_BYTES);
-      clib_memset (t, 0, sizeof (*t));
+      pool_get_aligned_zero (im->tunnel_interfaces, t, CLIB_CACHE_LINE_BYTES);
 
       dev_instance = t - im->tunnel_interfaces;
       if (args->renumber)
@@ -373,6 +369,7 @@ ipsec_add_del_tunnel_if_internal (vnet_main_t * vnm,
       ASSERT (slot == 0);
 
       t->hw_if_index = hw_if_index;
+      t->sw_if_index = hi->sw_if_index;
 
       vnet_feature_enable_disable ("interface-output", "ipsec-if-output",
 				   hi->sw_if_index, 1, 0, 0);
@@ -599,7 +596,6 @@ ipsec_set_interface_sa (vnet_main_t * vnm, u32 hw_if_index, u32 sa_id,
   return 0;
 }
 
-
 clib_error_t *
 ipsec_tunnel_if_init (vlib_main_t * vm)
 {
@@ -607,6 +603,9 @@ ipsec_tunnel_if_init (vlib_main_t * vm)
 
   im->ipsec_if_pool_index_by_key = hash_create (0, sizeof (uword));
   im->ipsec_if_real_dev_by_show_dev = hash_create (0, sizeof (uword));
+
+  udp_register_dst_port (vm, UDP_DST_PORT_ipsec, ipsec_if_input_node.index,
+			 1);
 
   return 0;
 }

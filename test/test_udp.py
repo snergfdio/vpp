@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import unittest
 from framework import VppTestCase, VppTestRunner
-from vpp_udp_encap import *
+from vpp_udp_encap import find_udp_encap, VppUdpEncap
 from vpp_ip_route import VppIpRoute, VppRoutePath, VppIpTable, VppMplsLabel
 
 from scapy.packet import Raw
@@ -259,10 +259,10 @@ class TestUDP(VppTestCase):
             table_id += 1
 
         # Configure namespaces
-        self.vapi.app_namespace_add(namespace_id="0",
-                                    sw_if_index=self.loop0.sw_if_index)
-        self.vapi.app_namespace_add(namespace_id="1",
-                                    sw_if_index=self.loop1.sw_if_index)
+        self.vapi.app_namespace_add_del(namespace_id="0",
+                                        sw_if_index=self.loop0.sw_if_index)
+        self.vapi.app_namespace_add_del(namespace_id="1",
+                                        sw_if_index=self.loop1.sw_if_index)
 
     def tearDown(self):
         for i in self.lo_interfaces:
@@ -293,14 +293,14 @@ class TestUDP(VppTestCase):
                               "uri " + uri)
         if error:
             self.logger.critical(error)
-            self.assertEqual(error.find("failed"), -1)
+            self.assertNotIn("failed", error)
 
         error = self.vapi.cli("test echo client mbytes 10 appns 1 " +
                               "fifo-size 4 no-output test-bytes " +
                               "syn-timeout 2 no-return uri " + uri)
         if error:
             self.logger.critical(error)
-            self.assertEqual(error.find("failed"), -1)
+            self.assertNotIn("failed", error)
 
         # Delete inter-table routes
         ip_t01.remove_vpp_config()

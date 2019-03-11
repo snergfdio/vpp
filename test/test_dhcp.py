@@ -8,6 +8,7 @@ from framework import VppTestCase, VppTestRunner, running_extended_tests
 from vpp_neighbor import VppNeighbor
 from vpp_ip_route import find_route, VppIpTable
 from util import mk_ll_addr
+import scapy.compat
 from scapy.layers.l2 import Ether, getmacbyip, ARP
 from scapy.layers.inet import IP, UDP, ICMP
 from scapy.layers.inet6 import IPv6, in6_getnsmac
@@ -490,7 +491,7 @@ class TestDHCP(VppTestCase):
         #
         # 1. not our IP address = not checked by VPP? so offer is replayed
         #    to client
-        bad_ip = option_82[0:8] + chr(33) + option_82[9:]
+        bad_ip = option_82[0:8] + scapy.compat.chb(33) + option_82[9:]
 
         p = (Ether(dst=self.pg0.local_mac, src=self.pg0.remote_mac) /
              IP(src=self.pg0.remote_ip4, dst=self.pg0.local_ip4) /
@@ -504,7 +505,7 @@ class TestDHCP(VppTestCase):
                                         "DHCP offer option 82 bad address")
 
         # 2. Not a sw_if_index VPP knows
-        bad_if_index = option_82[0:2] + chr(33) + option_82[3:]
+        bad_if_index = option_82[0:2] + scapy.compat.chb(33) + option_82[3:]
 
         p = (Ether(dst=self.pg0.local_mac, src=self.pg0.remote_mac) /
              IP(src=self.pg0.remote_ip4, dst=self.pg0.local_ip4) /
@@ -1213,7 +1214,7 @@ class TestDHCP(VppTestCase):
         #
         # Configure DHCP client on PG3 and capture the discover sent
         #
-        self.vapi.dhcp_client(self.pg3.sw_if_index, hostname)
+        self.vapi.dhcp_client_config(self.pg3.sw_if_index, hostname)
 
         rx = self.pg3.get_capture(1)
 
@@ -1283,7 +1284,7 @@ class TestDHCP(VppTestCase):
         #
         # remove the DHCP config
         #
-        self.vapi.dhcp_client(self.pg3.sw_if_index, hostname, is_add=0)
+        self.vapi.dhcp_client_config(self.pg3.sw_if_index, hostname, is_add=0)
 
         #
         # and now the route should be gone
@@ -1297,8 +1298,8 @@ class TestDHCP(VppTestCase):
         self.pg3.admin_down()
         self.sleep(1)
         self.pg3.admin_up()
-        self.vapi.dhcp_client(self.pg3.sw_if_index, hostname,
-                              client_id=self.pg3.local_mac)
+        self.vapi.dhcp_client_config(self.pg3.sw_if_index, hostname,
+                                     client_id=self.pg3.local_mac)
 
         rx = self.pg3.get_capture(1)
 
@@ -1355,7 +1356,7 @@ class TestDHCP(VppTestCase):
         #
         # remove the DHCP config
         #
-        self.vapi.dhcp_client(self.pg3.sw_if_index, hostname, is_add=0)
+        self.vapi.dhcp_client_config(self.pg3.sw_if_index, hostname, is_add=0)
 
         self.assertFalse(find_route(self, self.pg3.local_ip4, 32))
         self.assertFalse(find_route(self, self.pg3.local_ip4, 24))
@@ -1367,8 +1368,8 @@ class TestDHCP(VppTestCase):
         #
         # Configure DHCP client on PG3 and capture the discover sent
         #
-        self.vapi.dhcp_client(self.pg3.sw_if_index, hostname,
-                              set_broadcast_flag=0)
+        self.vapi.dhcp_client_config(self.pg3.sw_if_index, hostname,
+                                     set_broadcast_flag=0)
 
         rx = self.pg3.get_capture(1)
 
@@ -1462,7 +1463,7 @@ class TestDHCP(VppTestCase):
         #
         # remove the DHCP config
         #
-        self.vapi.dhcp_client(self.pg3.sw_if_index, hostname, is_add=0)
+        self.vapi.dhcp_client_config(self.pg3.sw_if_index, hostname, is_add=0)
 
         #
         # and now the route should be gone
@@ -1476,7 +1477,7 @@ class TestDHCP(VppTestCase):
         self.pg3.admin_down()
         self.sleep(1)
         self.pg3.admin_up()
-        self.vapi.dhcp_client(self.pg3.sw_if_index, hostname)
+        self.vapi.dhcp_client_config(self.pg3.sw_if_index, hostname)
 
         rx = self.pg3.get_capture(1)
 
@@ -1553,7 +1554,7 @@ class TestDHCP(VppTestCase):
         #
         # remove the DHCP config
         #
-        self.vapi.dhcp_client(self.pg3.sw_if_index, hostname, is_add=0)
+        self.vapi.dhcp_client_config(self.pg3.sw_if_index, hostname, is_add=0)
 
 
 if __name__ == '__main__':

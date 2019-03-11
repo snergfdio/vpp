@@ -723,6 +723,27 @@ session_lookup_listener (u32 table_index, session_endpoint_t * sep)
   return 0;
 }
 
+/**
+ * Lookup listener wildcard match
+ */
+session_t *
+session_lookup_listener_wildcard (u32 table_index, session_endpoint_t * sep)
+{
+  session_table_t *st;
+  st = session_table_get (table_index);
+  if (!st)
+    return 0;
+  if (sep->is_ip4)
+    return session_lookup_listener4_i (st, &sep->ip.ip4, sep->port,
+				       sep->transport_proto,
+				       1 /* use_wildcard */ );
+  else
+    return session_lookup_listener6_i (st, &sep->ip.ip6, sep->port,
+				       sep->transport_proto,
+				       1 /* use_wildcard */ );
+  return 0;
+}
+
 int
 session_lookup_add_half_open (transport_connection_t * tc, u64 value)
 {
@@ -1304,7 +1325,7 @@ u8 *
 format_ip4_session_lookup_kvp (u8 * s, va_list * args)
 {
   clib_bihash_kv_16_8_t *kvp = va_arg (*args, clib_bihash_kv_16_8_t *);
-  u32 is_local = va_arg (*args, u32), app_wrk_index, session_index;
+  u32 is_local = va_arg (*args, u32);
   v4_connection_key_t *key = (v4_connection_key_t *) kvp->key;
   session_t *session;
   app_worker_t *app_wrk;
@@ -1324,8 +1345,8 @@ format_ip4_session_lookup_kvp (u8 * s, va_list * args)
     }
   else
     {
-      local_session_parse_handle (kvp->value, &app_wrk_index, &session_index);
-      app_wrk = app_worker_get (app_wrk_index);
+      session = session_get_from_handle (kvp->value);
+      app_wrk = app_worker_get (session->app_wrk_index);
       app_name = application_name_from_index (app_wrk->app_index);
       str = format (0, "[%U] %U:%d", format_transport_proto_short, key->proto,
 		    format_ip4_address, &key->src,

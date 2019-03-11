@@ -866,9 +866,11 @@ start_workers (vlib_main_t * vm)
 	      nm_clone->processes = vec_dup_aligned (nm->processes,
 						     CLIB_CACHE_LINE_BYTES);
 
-	      /* zap the (per worker) frame freelists, etc */
-	      nm_clone->frame_sizes = 0;
+	      /* Create per-thread frame freelist */
+	      nm_clone->frame_sizes = vec_new (vlib_frame_size_t, 1);
+#ifdef VLIB_SUPPORTS_ARBITRARY_SCALAR_SIZES
 	      nm_clone->frame_size_hash = hash_create (0, sizeof (uword));
+#endif
 
 	      /* Packet trace buffers are guaranteed to be empty, nothing to do here */
 
@@ -1380,7 +1382,7 @@ vlib_worker_thread_fork_fixup (vlib_fork_fixup_t which)
 #endif
 
 void
-vlib_worker_thread_barrier_sync_int (vlib_main_t * vm)
+vlib_worker_thread_barrier_sync_int (vlib_main_t * vm, const char *func_name)
 {
   f64 deadline;
   f64 now;
@@ -1394,6 +1396,7 @@ vlib_worker_thread_barrier_sync_int (vlib_main_t * vm)
 
   ASSERT (vlib_get_thread_index () == 0);
 
+  vlib_worker_threads[0].barrier_caller = func_name;
   count = vec_len (vlib_mains) - 1;
 
   /* Record entry relative to last close */

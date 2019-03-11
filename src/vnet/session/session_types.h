@@ -19,7 +19,6 @@
 #include <svm/svm_fifo.h>
 #include <vnet/session/transport_types.h>
 
-#define SESSION_LOCAL_HANDLE_PREFIX 	0x7FFFFFFF
 #define SESSION_LISTENER_PREFIX		0x5FFFFFFF
 
 #define foreach_session_endpoint_fields				\
@@ -41,6 +40,7 @@ typedef struct _session_endpoint_cfg
   u32 app_wrk_index;
   u32 opaque;
   u32 ns_index;
+  u8 original_tp;
   u8 *hostname;
 } session_endpoint_cfg_t;
 
@@ -110,7 +110,7 @@ typedef u8 session_type_t;
 typedef u64 session_handle_t;
 
 /*
- * Application session state
+ * Session states
  */
 typedef enum
 {
@@ -128,64 +128,47 @@ typedef enum
   SESSION_STATE_N_STATES,
 } session_state_t;
 
-typedef struct generic_session_
-{
-  svm_fifo_t *rx_fifo;		/**< rx fifo */
-  svm_fifo_t *tx_fifo;		/**< tx fifo */
-  session_type_t session_type;	/**< session type */
-  volatile u8 session_state;	/**< session state */
-  u32 session_index;		/**< index in owning pool */
-} generic_session_t;
-
 typedef struct session_
 {
-  /** fifo pointers. Once allocated, these do not move */
+  /** Pointers to rx/tx buffers. Once allocated, these do not move */
   svm_fifo_t *rx_fifo;
   svm_fifo_t *tx_fifo;
 
-  /** Type */
+  /** Type built from transport and network protocol types */
   session_type_t session_type;
 
-  /** State */
+  /** State in session layer state machine. See @ref session_state_t */
   volatile u8 session_state;
 
-  /** Session index in per_thread pool */
+  /** Index in thread pool where session was allocated */
   u32 session_index;
 
-  /** App worker pool index */
+  /** Index of the app worker that owns the session */
   u32 app_wrk_index;
 
+  /** Index of the thread that allocated the session */
   u8 thread_index;
 
-  /** To avoid n**2 "one event per frame" check */
+  /** Tracks last enqueue epoch to avoid generating multiple enqueue events */
   u64 enqueue_epoch;
 
-  /** svm segment index where fifos were allocated */
-  u32 svm_segment_index;
-
-  /** Transport specific */
+  /** Index of the transport connection associated to the session */
   u32 connection_index;
 
+  /** Index of application that owns the listener. Set only if a listener */
+  u32 app_index;
+
   union
   {
-    /** Parent listener session if the result of an accept */
+    /** Parent listener session index if the result of an accept */
     u32 listener_index;
 
-    /** Application index if a listener */
-    u32 app_index;
-  };
-
-  union
-  {
-    /** Transport app index for apps acting as transports */
-    u32 t_app_index;
-
-    /** App listener index */
+    /** App listener index in app's listener pool if a listener */
     u32 al_index;
-
-    /** Opaque, for general use */
-    u32 opaque;
   };
+
+  /** Opaque, for general use */
+  u32 opaque;
 
     CLIB_CACHE_LINE_ALIGN_MARK (pad);
 } session_t;
@@ -275,122 +258,15 @@ session_parse_handle (session_handle_t handle, u32 * index,
   *thread_index = session_thread_from_handle (handle);
 }
 
-always_inline u8
-session_handle_is_local (session_handle_t handle)
-{
-  if ((handle >> 32) == SESSION_LOCAL_HANDLE_PREFIX)
-    return 1;
-  return 0;
-}
-
-typedef struct local_session_
-{
-  /** fifo pointers. Once allocated, these do not move */
-  svm_fifo_t *rx_fifo;
-  svm_fifo_t *tx_fifo;
-
-  /** Type */
-  session_type_t session_type;
-
-  /** State */
-  volatile u8 session_state;
-
-  /** Session index */
-  u32 session_index;
-
-  /** Server index */
-  u32 app_wrk_index;
-
-  /** Port for connection. Overlaps thread_index/enqueue_epoch */
-  u16 port;
-
-  /** Partly overlaps enqueue_epoch */
-  u8 pad_epoch[7];
-
-  /** Segment index where fifos were allocated */
-  u32 svm_segment_index;
-
-  /** Transport listener index. Overlaps connection index */
-  u32 transport_listener_index;
-
-  union
-  {
-    u32 listener_index;
-    u32 app_index;
-  };
-
-  u32 al_index;
-
-  /** Has transport embedded when listener not purely local */
-  session_type_t listener_session_type;
-
-  /**
-   * Client data
-   */
-  u32 client_wrk_index;
-  u32 client_opaque;
-
-  u64 server_evt_q;
-  u64 client_evt_q;
-
-    CLIB_CACHE_LINE_ALIGN_MARK (pad);
-} local_session_t;
-
-always_inline u32
-local_session_id (local_session_t * ls)
-{
-  ASSERT (ls->session_index < (2 << 16));
-  u32 app_or_wrk_index;
-
-  if (ls->session_state == SESSION_STATE_LISTENING)
-    {
-      ASSERT (ls->app_index < (2 << 16));
-      app_or_wrk_index = ls->app_index;
-    }
-  else
-    {
-      ASSERT (ls->app_wrk_index < (2 << 16));
-      app_or_wrk_index = ls->app_wrk_index;
-    }
-
-  return ((u32) app_or_wrk_index << 16 | (u32) ls->session_index);
-}
-
-always_inline void
-local_session_parse_id (u32 ls_id, u32 * app_or_wrk, u32 * session_index)
-{
-  *app_or_wrk = ls_id >> 16;
-  *session_index = ls_id & 0xFF;
-}
-
-always_inline void
-local_session_parse_handle (session_handle_t handle, u32 * app_or_wrk_index,
-			    u32 * session_index)
-{
-  u32 bottom;
-  ASSERT ((handle >> 32) == SESSION_LOCAL_HANDLE_PREFIX);
-  bottom = (handle & 0xFFFFFFFF);
-  local_session_parse_id (bottom, app_or_wrk_index, session_index);
-}
-
-always_inline session_handle_t
-application_local_session_handle (local_session_t * ls)
-{
-  return ((u64) SESSION_LOCAL_HANDLE_PREFIX << 32)
-    | (u64) local_session_id (ls);
-}
-
 typedef enum
 {
-  FIFO_EVENT_APP_RX,
-  SESSION_IO_EVT_CT_RX,
-  FIFO_EVENT_APP_TX,
-  SESSION_IO_EVT_CT_TX,
+  SESSION_IO_EVT_RX,
+  SESSION_IO_EVT_TX,
   SESSION_IO_EVT_TX_FLUSH,
-  FIFO_EVENT_DISCONNECT,
-  FIFO_EVENT_BUILTIN_RX,
-  FIFO_EVENT_BUILTIN_TX,
-  FIFO_EVENT_RPC,
+  SESSION_IO_EVT_BUILTIN_RX,
+  SESSION_IO_EVT_BUILTIN_TX,
+  SESSION_CTRL_EVT_RPC,
+  SESSION_CTRL_EVT_CLOSE,
   SESSION_CTRL_EVT_BOUND,
   SESSION_CTRL_EVT_UNLISTEN_REPLY,
   SESSION_CTRL_EVT_ACCEPTED,
@@ -406,25 +282,12 @@ typedef enum
   SESSION_CTRL_EVT_WORKER_UPDATE_REPLY,
 } session_evt_type_t;
 
-static inline const char *
-fifo_event_type_str (session_evt_type_t et)
-{
-  switch (et)
-    {
-    case FIFO_EVENT_APP_RX:
-      return "FIFO_EVENT_APP_RX";
-    case FIFO_EVENT_APP_TX:
-      return "FIFO_EVENT_APP_TX";
-    case FIFO_EVENT_DISCONNECT:
-      return "FIFO_EVENT_DISCONNECT";
-    case FIFO_EVENT_BUILTIN_RX:
-      return "FIFO_EVENT_BUILTIN_RX";
-    case FIFO_EVENT_RPC:
-      return "FIFO_EVENT_RPC";
-    default:
-      return "UNKNOWN FIFO EVENT";
-    }
-}
+/* Deprecated and will be removed. Use types above */
+#define FIFO_EVENT_APP_RX SESSION_IO_EVT_RX
+#define FIFO_EVENT_APP_TX SESSION_IO_EVT_TX
+#define FIFO_EVENT_DISCONNECT SESSION_CTRL_EVT_CLOSE
+#define FIFO_EVENT_BUILTIN_RX SESSION_IO_EVT_BUILTIN_RX
+#define FIFO_EVENT_BUILTIN_TX SESSION_IO_EVT_BUILTIN_TX
 
 typedef enum
 {
@@ -439,14 +302,13 @@ typedef struct
   void *arg;
 } session_rpc_args_t;
 
-/* *INDENT-OFF* */
 typedef struct
 {
   u8 event_type;
   u8 postponed;
   union
   {
-    svm_fifo_t *fifo;
+    u32 session_index;
     session_handle_t session_handle;
     session_rpc_args_t rpc_args;
     struct
@@ -455,7 +317,6 @@ typedef struct
     };
   };
 } __clib_packed session_event_t;
-/* *INDENT-ON* */
 
 #define SESSION_MSG_NULL { }
 
@@ -465,8 +326,7 @@ typedef struct session_dgram_pre_hdr_
   u32 data_offset;
 } session_dgram_pre_hdr_t;
 
-/* *INDENT-OFF* */
-typedef CLIB_PACKED (struct session_dgram_header_
+typedef struct session_dgram_header_
 {
   u32 data_length;
   u32 data_offset;
@@ -475,8 +335,7 @@ typedef CLIB_PACKED (struct session_dgram_header_
   u16 rmt_port;
   u16 lcl_port;
   u8 is_ip4;
-}) session_dgram_hdr_t;
-/* *INDENT-ON* */
+} __clib_packed session_dgram_hdr_t;
 
 #define SESSION_CONN_ID_LEN 37
 #define SESSION_CONN_HDR_LEN 45

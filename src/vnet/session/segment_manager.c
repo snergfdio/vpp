@@ -77,7 +77,18 @@ segment_manager_del_segment (segment_manager_t * sm,
   segment_manager_main_t *smm = &segment_manager_main;
 
   if (ssvm_type (&fs->ssvm) != SSVM_SEGMENT_PRIVATE)
-    clib_valloc_free (&smm->va_allocator, fs->ssvm.requested_va);
+    {
+      clib_valloc_free (&smm->va_allocator, fs->ssvm.requested_va);
+
+      if (sm->app_wrk_index != SEGMENT_MANAGER_INVALID_APP_INDEX)
+	{
+	  app_worker_t *app_wrk;
+	  u64 segment_handle;
+	  app_wrk = app_worker_get (sm->app_wrk_index);
+	  segment_handle = segment_manager_segment_handle (sm, fs);
+	  app_worker_del_segment_notify (app_wrk, segment_handle);
+	}
+    }
 
   ssvm_delete (&fs->ssvm);
 
@@ -379,6 +390,7 @@ void
 segment_manager_del_sessions (segment_manager_t * sm)
 {
   svm_fifo_segment_private_t *fifo_segment;
+  session_handle_t *handles = 0, *handle;
   session_t *session;
   svm_fifo_t *fifo;
 
@@ -396,17 +408,10 @@ segment_manager_del_sessions (segment_manager_t * sm)
      */
     while (fifo)
       {
-	if (fifo->ct_session_index != SVM_FIFO_INVALID_SESSION_INDEX)
-	  {
-	    svm_fifo_t *next = fifo->next;
-	    app_worker_local_session_disconnect_w_index (sm->app_wrk_index,
-	                                                  fifo->ct_session_index);
-	    fifo = next;
-	    continue;
-	  }
-	session = session_get (fifo->master_session_index,
-	                       fifo->master_thread_index);
-	session_close (session);
+	session = session_get_if_valid (fifo->master_session_index,
+	                                fifo->master_thread_index);
+	if (session)
+	  vec_add1 (handles, session_handle (session));
 	fifo = fifo->next;
       }
 
@@ -415,6 +420,9 @@ segment_manager_del_sessions (segment_manager_t * sm)
      */
   }));
   /* *INDENT-ON* */
+
+  vec_foreach (handle, handles)
+    session_close (session_get_from_handle (*handle));
 }
 
 /**
@@ -552,9 +560,10 @@ alloc_check:
 
       if (added_a_segment)
 	{
+	  app_worker_t *app_wrk;
 	  segment_handle = segment_manager_segment_handle (sm, fifo_segment);
-	  rv = app_worker_add_segment_notify (sm->app_wrk_index,
-					      segment_handle);
+	  app_wrk = app_worker_get (sm->app_wrk_index);
+	  rv = app_worker_add_segment_notify (app_wrk, segment_handle);
 	}
       /* Drop the lock after app is notified */
       segment_manager_segment_reader_unlock (sm);
@@ -593,11 +602,11 @@ alloc_check:
 }
 
 void
-segment_manager_dealloc_fifos (u32 segment_index, svm_fifo_t * rx_fifo,
-			       svm_fifo_t * tx_fifo)
+segment_manager_dealloc_fifos (svm_fifo_t * rx_fifo, svm_fifo_t * tx_fifo)
 {
   svm_fifo_segment_private_t *fifo_segment;
   segment_manager_t *sm;
+  u32 segment_index;
 
   if (!rx_fifo || !tx_fifo)
     return;
@@ -607,6 +616,7 @@ segment_manager_dealloc_fifos (u32 segment_index, svm_fifo_t * rx_fifo,
   if (!(sm = segment_manager_get_if_valid (rx_fifo->segment_manager)))
     return;
 
+  segment_index = rx_fifo->segment_index;
   fifo_segment = segment_manager_get_segment_w_lock (sm, segment_index);
   svm_fifo_segment_free_fifo (fifo_segment, rx_fifo,
 			      FIFO_SEGMENT_RX_FREELIST);

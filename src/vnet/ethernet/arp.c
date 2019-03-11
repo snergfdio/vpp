@@ -2410,6 +2410,9 @@ arp_term_l2bd (vlib_main_t * vm,
 
 	  if (PREDICT_FALSE (!macp0))
 	    goto next_l2_feature;	/* MAC not found */
+	  if (PREDICT_FALSE (arp0->ip4_over_ethernet[0].ip4.as_u32 ==
+			     arp0->ip4_over_ethernet[1].ip4.as_u32))
+	    goto next_l2_feature;	/* GARP */
 
 	  /* MAC found, send ARP reply -
 	     Convert ARP request packet to ARP reply */
@@ -2613,7 +2616,7 @@ send_ip4_garp_w_addr (vlib_main_t * vm,
 /*
  * Remove any arp entries asociated with the specificed interface
  */
-void
+static clib_error_t *
 vnet_arp_delete_sw_interface (vnet_main_t * vnm, u32 sw_if_index, u32 is_add)
 {
   if (!is_add && sw_if_index != ~0)
@@ -2632,6 +2635,8 @@ vnet_arp_delete_sw_interface (vnet_main_t * vnm, u32 sw_if_index, u32 is_add)
       }));
       /* *INDENT-ON* */
     }
+
+  return (NULL);
 }
 
 VNET_SW_INTERFACE_ADD_DEL_FUNCTION (vnet_arp_delete_sw_interface);

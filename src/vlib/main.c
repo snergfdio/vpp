@@ -91,10 +91,11 @@ vlib_frame_find_magic (vlib_frame_t * f, vlib_node_t * node)
   return p;
 }
 
-static vlib_frame_size_t *
+static inline vlib_frame_size_t *
 get_frame_size_info (vlib_node_main_t * nm,
 		     u32 n_scalar_bytes, u32 n_vector_bytes)
 {
+#ifdef VLIB_SUPPORTS_ARBITRARY_SCALAR_SIZES
   uword key = (n_scalar_bytes << 16) | n_vector_bytes;
   uword *p, i;
 
@@ -109,6 +110,11 @@ get_frame_size_info (vlib_node_main_t * nm,
     }
 
   return vec_elt_at_index (nm->frame_sizes, i);
+#else
+  ASSERT (vlib_frame_bytes (n_scalar_bytes, n_vector_bytes)
+	  == (vlib_frame_bytes (0, 4)));
+  return vec_elt_at_index (nm->frame_sizes, 0);
+#endif
 }
 
 static u32
@@ -233,7 +239,7 @@ vlib_frame_free (vlib_main_t * vm, vlib_node_runtime_t * r, vlib_frame_t * f)
 	ASSERT (nf->frame_index != frame_index);
     }
 
-  f->frame_flags &= ~VLIB_FRAME_IS_ALLOCATED;
+  f->frame_flags &= ~(VLIB_FRAME_IS_ALLOCATED | VLIB_FRAME_NO_APPEND);
 
   vec_add1 (fs->free_frame_indices, frame_index);
   ASSERT (fs->n_alloc_frames > 0);
@@ -387,9 +393,11 @@ vlib_get_next_frame_internal (vlib_main_t * vm,
       f->flags = 0;
     }
 
-  /* Allocate new frame if current one is already full. */
+  /* Allocate new frame if current one is marked as no-append or
+     it is already full. */
   n_used = f->n_vectors;
-  if (n_used >= VLIB_FRAME_SIZE || (allocate_new_next_frame && n_used > 0))
+  if (n_used >= VLIB_FRAME_SIZE || (allocate_new_next_frame && n_used > 0) ||
+      (f->frame_flags & VLIB_FRAME_NO_APPEND))
     {
       /* Old frame may need to be freed after dispatch, since we'll have
          two redundant frames from node -> next node. */
@@ -1370,7 +1378,7 @@ dispatch_pending_node (vlib_main_t * vm, uword pending_frame_index,
 				   VLIB_NODE_STATE_POLLING,
 				   f, last_time_stamp);
 
-  f->frame_flags &= ~VLIB_FRAME_PENDING;
+  f->frame_flags &= ~(VLIB_FRAME_PENDING | VLIB_FRAME_NO_APPEND);
 
   /* Frame is ready to be used again, so restore it. */
   if (restore_frame_index != ~0)
@@ -1977,6 +1985,12 @@ vlib_main (vlib_main_t * volatile vm, unformat_input_t * input)
       goto done;
     }
 
+  if ((error = vlib_map_stat_segment_init (vm)))
+    {
+      clib_error_report (error);
+      goto done;
+    }
+
   if ((error = vlib_buffer_main_init (vm)))
     {
       clib_error_report (error);
@@ -1984,12 +1998,6 @@ vlib_main (vlib_main_t * volatile vm, unformat_input_t * input)
     }
 
   if ((error = vlib_thread_init (vm)))
-    {
-      clib_error_report (error);
-      goto done;
-    }
-
-  if ((error = vlib_map_stat_segment_init (vm)))
     {
       clib_error_report (error);
       goto done;
@@ -2103,15 +2111,12 @@ pcap_dispatch_trace_command_internal (vlib_main_t * vm,
 				      unformat_input_t * input,
 				      vlib_cli_command_t * cmd, int rx_tx)
 {
-#define PCAP_DEF_PKT_TO_CAPTURE (100)
-
   unformat_input_t _line_input, *line_input = &_line_input;
   pcap_main_t *pm = &vm->dispatch_pcap_main;
-  u8 *filename;
-  u8 *chroot_filename = 0;
-  u32 max = 0;
+  u8 *filename = 0;
+  u32 max = 1000;
   int enabled = 0;
-  int errorFlag = 0;
+  int is_error = 0;
   clib_error_t *error = 0;
   u32 node_index, add;
   vlib_trace_main_t *tm;
@@ -2132,7 +2137,7 @@ pcap_dispatch_trace_command_internal (vlib_main_t * vm,
 	  else
 	    {
 	      vlib_cli_output (vm, "pcap dispatch capture already on...");
-	      errorFlag = 1;
+	      is_error = 1;
 	      break;
 	    }
 	}
@@ -2156,7 +2161,7 @@ pcap_dispatch_trace_command_internal (vlib_main_t * vm,
 	  else
 	    {
 	      vlib_cli_output (vm, "pcap tx capture already off...");
-	      errorFlag = 1;
+	      is_error = 1;
 	      break;
 	    }
 	}
@@ -2167,7 +2172,7 @@ pcap_dispatch_trace_command_internal (vlib_main_t * vm,
 	      vlib_cli_output
 		(vm,
 		 "can't change max value while pcap tx capture active...");
-	      errorFlag = 1;
+	      is_error = 1;
 	      break;
 	    }
 	  pm->n_packets_to_capture = max;
@@ -2180,7 +2185,7 @@ pcap_dispatch_trace_command_internal (vlib_main_t * vm,
 	    {
 	      vlib_cli_output
 		(vm, "can't change file while pcap tx capture active...");
-	      errorFlag = 1;
+	      is_error = 1;
 	      break;
 	    }
 	}
@@ -2225,32 +2230,27 @@ pcap_dispatch_trace_command_internal (vlib_main_t * vm,
 	{
 	  error = clib_error_return (0, "unknown input `%U'",
 				     format_unformat_error, line_input);
-	  errorFlag = 1;
+	  is_error = 1;
 	  break;
 	}
     }
   unformat_free (line_input);
 
-
-  if (errorFlag == 0)
+  if (is_error == 0)
     {
-      /* Since no error, save configured values. */
-      if (chroot_filename)
-	{
-	  if (pm->file_name)
-	    vec_free (pm->file_name);
-	  vec_add1 (chroot_filename, 0);
-	  pm->file_name = (char *) chroot_filename;
-	}
+      /* Clean up from previous run */
+      vec_free (pm->file_name);
+      vec_free (pm->pcap_data);
 
-      if (max)
-	pm->n_packets_to_capture = max;
+      memset (pm, 0, sizeof (*pm));
+      pm->n_packets_to_capture = max;
 
       if (enabled)
 	{
-	  if (pm->file_name == 0)
-	    pm->file_name = (char *) format (0, "/tmp/dispatch.pcap%c", 0);
+	  if (filename == 0)
+	    filename = format (0, "/tmp/dispatch.pcap%c", 0);
 
+	  pm->file_name = (char *) filename;
 	  pm->n_packets_captured = 0;
 	  pm->packet_type = PCAP_PACKET_TYPE_vpp;
 	  if (pm->lock == 0)
@@ -2259,8 +2259,6 @@ pcap_dispatch_trace_command_internal (vlib_main_t * vm,
 	  vlib_cli_output (vm, "pcap dispatch capture on...");
 	}
     }
-  else if (chroot_filename)
-    vec_free (chroot_filename);
 
   return error;
 }

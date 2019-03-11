@@ -63,10 +63,10 @@ typedef struct gbp_bridge_domain_t_
   u32 gb_bm_flood_sw_if_index;
 
   /**
-   * The BD's VNI interface on which packets from unkown endpoints
-   * arrive
+   * The index of the BD's VNI interface on which packets from
+   * unkown endpoints arrive
    */
-  u32 gb_vni_sw_if_index;
+  u32 gb_vni;
 
   /**
    * locks/references to the BD so it does not get deleted (from the API)
@@ -91,6 +91,7 @@ typedef int (*gbp_bridge_domain_cb_t) (gbp_bridge_domain_t * gb, void *ctx);
 extern void gbp_bridge_domain_walk (gbp_bridge_domain_cb_t bgpe, void *ctx);
 
 extern u8 *format_gbp_bridge_domain (u8 * s, va_list * args);
+extern u8 *format_gbp_bridge_domain_flags (u8 * s, va_list * args);
 
 /**
  * DB of bridge_domains
