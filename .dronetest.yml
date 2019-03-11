@@ -44,6 +44,8 @@ steps:
   privileged: true
   commands:
     - echo 'push only'
+    - rm /root/.packagecloud
+    - printf $key /root/.packagecloud
     - chmod 755 /usr/local/bin/pc_push || true
     - /usr/local/bin/pc_push || true
   when:
