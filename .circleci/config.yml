@@ -11,6 +11,8 @@ jobs:
       - image: snergster/vpp-centos
     steps:
       - checkout
+      - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.rpm.sh | sudo bash
+      - run: yum -y install vpp-ext-deps || true
       - run: make UNATTENDED=yes verify
   ubuntu18:
     docker:

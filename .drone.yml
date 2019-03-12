@@ -28,6 +28,8 @@ steps:
   image: index.docker.io/snergster/vpp-centos
   commands:
   - git fetch --tags || true
+  - curl -s https://packagecloud.io/install/repositories/fdio/master/script.rpm.sh | sudo bash
+  - yum -y install vpp-ext-deps || true
   - make UNATTENDED=yes verify
   when:
     event:
