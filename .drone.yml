@@ -34,10 +34,11 @@ steps:
   when:
     event:
     - pull_request
+    - push
 - name: vppbuildpushcentos
   image: index.docker.io/snergster/vpp-centos
   commands:
-  - make UNATTENDED=yes verify
+  - echo 'push only    make UNATTENDED=yes verify'
   when:
     event:
     - push
