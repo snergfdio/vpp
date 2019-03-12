@@ -41,6 +41,8 @@ steps:
       from_secret: repo
     token:
       from_secret: token
+    STREAM: master
+    pclogin: snergster
   image: index.docker.io/snergster/vpp-ubuntu18
   privileged: true
   commands:
