@@ -15,9 +15,9 @@ jobs:
             #sudo chown -R circleci:circleci ~/vpp/build-root/.ccache
       - restore_cache:
           keys:
-            - ccache-{{ arch }}-{{.Environment.CIRCLE_JOB}}-{{epoch}}
-            - ccache-{{ arch }}-{{epoch}}
-            - ccache-{{ arch }}
+            - ccache-v1-{{ .BRANCH }}-{{epoch}}
+            - ccache-v1-{{epoch}}
+            - ccache-v1
             - ccache-
       - run:
           name: ccache setup
@@ -30,14 +30,14 @@ jobs:
       - checkout
       - run: make UNATTENDED=yes verify
       - run:
-            name: ccache stats
-            command: |
-              export CCACHE_DIR=~/vpp/build-root/.ccache
-              ccache --show-stats
-        - save_cache:
-            key: ccache-{{ arch }}-{{.Environment.CIRCLE_JOB}}-{{epoch}}
-            paths:
-              - ~/vpp/build-root/.ccache
+          name: ccache stats
+          command: |
+            export CCACHE_DIR=~/vpp/build-root/.ccache
+            ccache --show-stats
+      - save_cache:
+          key: ccache-v1-{{.BRANCH}}-{{epoch}}
+          paths:
+            - ~/vpp/build-root/.ccache
   centos7:
     docker:
       - image: snergster/vpp-centos
@@ -58,5 +58,5 @@ workflows:
   build_and_test:
     jobs:
       - ubuntu16
-#      - centos7
-#      - ubuntu18
+      - centos7
+      - ubuntu18
