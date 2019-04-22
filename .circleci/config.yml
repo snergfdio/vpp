@@ -15,7 +15,8 @@ jobs:
             #sudo chown -R circleci:circleci ~/vpp/build-root/.ccache
       - restore_cache:
           keys:
-            - ccache-v1-{{ .BRANCH }}-{{epoch}}
+            #- ccache-v1-{{ .BRANCH }}-{{epoch}}
+            - ccache-v1-master-{{epoch}}
             - ccache-v1-{{epoch}}
             - ccache-v1
             - ccache-
@@ -28,6 +29,7 @@ jobs:
             ccache --zero-stats
             ccache --max-size=2G
       - checkout
+      - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.deb.sh | sudo bash
       - run: make UNATTENDED=yes verify
       - run:
           name: ccache stats
@@ -35,7 +37,8 @@ jobs:
             export CCACHE_DIR=~/vpp/build-root/.ccache
             ccache --show-stats
       - save_cache:
-          key: ccache-v1-{{.BRANCH}}-{{epoch}}
+#          key: ccache-v1-{{.BRANCH}}-{{epoch}}
+          key: ccache-v1-master-{{epoch}}
           paths:
             - ~/vpp/build-root/.ccache
   centos7:
