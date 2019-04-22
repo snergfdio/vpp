@@ -13,6 +13,10 @@ class TestSession(VppTestCase):
     def setUpClass(cls):
         super(TestSession, cls).setUpClass()
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestSession, cls).tearDownClass()
+
     def setUp(self):
         super(TestSession, self).setUp()
 
@@ -88,6 +92,14 @@ class TestSession(VppTestCase):
 class TestSessionUnitTests(VppTestCase):
     """ Session Unit Tests Case """
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestSessionUnitTests, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestSessionUnitTests, cls).tearDownClass()
+
     def setUp(self):
         super(TestSessionUnitTests, self).setUp()
         self.vapi.session_enable_disable(is_enabled=1)
@@ -103,6 +115,32 @@ class TestSessionUnitTests(VppTestCase):
     def tearDown(self):
         super(TestSessionUnitTests, self).tearDown()
         self.vapi.session_enable_disable(is_enabled=0)
+
+
+class TestSvmFifoUnitTests(VppTestCase):
+    """ SVM Fifo Unit Tests Case """
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestSvmFifoUnitTests, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestSvmFifoUnitTests, cls).tearDownClass()
+
+    def setUp(self):
+        super(TestSvmFifoUnitTests, self).setUp()
+
+    def test_svm_fifo(self):
+        """ SVM Fifo Unit Tests """
+        error = self.vapi.cli("test svm fifo all")
+
+        if error:
+            self.logger.critical(error)
+        self.assertNotIn("failed", error)
+
+    def tearDown(self):
+        super(TestSvmFifoUnitTests, self).tearDown()
 
 if __name__ == '__main__':
     unittest.main(testRunner=VppTestRunner)

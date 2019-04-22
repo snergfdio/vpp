@@ -148,6 +148,10 @@ class TestIp4VrfMultiInst(VppTestCase):
             super(TestIp4VrfMultiInst, cls).tearDownClass()
             raise
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestIp4VrfMultiInst, cls).tearDownClass()
+
     def setUp(self):
         """
         Clear trace and packet infos before running each test.
@@ -160,9 +164,10 @@ class TestIp4VrfMultiInst(VppTestCase):
         Show various debug prints after each test.
         """
         super(TestIp4VrfMultiInst, self).tearDown()
-        if not self.vpp_dead:
-            self.logger.info(self.vapi.ppcli("show ip fib"))
-            self.logger.info(self.vapi.ppcli("show ip arp"))
+
+    def show_commands_at_teardown(self):
+        self.logger.info(self.vapi.ppcli("show ip fib"))
+        self.logger.info(self.vapi.ppcli("show ip arp"))
 
     def create_vrf_and_assign_interfaces(self, count, start=1):
         """

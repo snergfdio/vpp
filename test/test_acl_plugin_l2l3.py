@@ -37,7 +37,7 @@ from scapy.layers.inet6 import ICMPv6EchoReply, IPv6ExtHdrRouting
 from scapy.layers.inet6 import IPv6ExtHdrFragment
 
 from framework import VppTestCase, VppTestRunner
-from vpp_papi_provider import L2_PORT_TYPE
+from vpp_l2 import L2_PORT_TYPE
 import time
 
 
@@ -72,12 +72,12 @@ class TestACLpluginL2L3(VppTestCase):
 
         # Create BD with MAC learning enabled and put interfaces to this BD
         cls.vapi.sw_interface_set_l2_bridge(
-            cls.loop0.sw_if_index, bd_id=cls.bd_id,
+            rx_sw_if_index=cls.loop0.sw_if_index, bd_id=cls.bd_id,
             port_type=L2_PORT_TYPE.BVI)
-        cls.vapi.sw_interface_set_l2_bridge(
-            cls.pg0.sw_if_index, bd_id=cls.bd_id)
-        cls.vapi.sw_interface_set_l2_bridge(
-            cls.pg1.sw_if_index, bd_id=cls.bd_id)
+        cls.vapi.sw_interface_set_l2_bridge(rx_sw_if_index=cls.pg0.sw_if_index,
+                                            bd_id=cls.bd_id)
+        cls.vapi.sw_interface_set_l2_bridge(rx_sw_if_index=cls.pg1.sw_if_index,
+                                            bd_id=cls.bd_id)
 
         # Configure IPv4 addresses on loopback interface and routed interface
         cls.loop0.config_ip4()
@@ -104,25 +104,30 @@ class TestACLpluginL2L3(VppTestCase):
         cls.pg0.remote_hosts = cls.loop0.remote_hosts[:half]
         cls.pg1.remote_hosts = cls.loop0.remote_hosts[half:]
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestACLpluginL2L3, cls).tearDownClass()
+
     def tearDown(self):
         """Run standard test teardown and log ``show l2patch``,
         ``show l2fib verbose``,``show bridge-domain <bd_id> detail``,
         ``show ip arp``.
         """
         super(TestACLpluginL2L3, self).tearDown()
-        if not self.vpp_dead:
-            self.logger.info(self.vapi.cli("show l2patch"))
-            self.logger.info(self.vapi.cli("show classify tables"))
-            self.logger.info(self.vapi.cli("show l2fib verbose"))
-            self.logger.info(self.vapi.cli("show bridge-domain %s detail" %
-                                           self.bd_id))
-            self.logger.info(self.vapi.cli("show ip arp"))
-            self.logger.info(self.vapi.cli("show ip6 neighbors"))
-            cmd = "show acl-plugin sessions verbose 1"
-            self.logger.info(self.vapi.cli(cmd))
-            self.logger.info(self.vapi.cli("show acl-plugin acl"))
-            self.logger.info(self.vapi.cli("show acl-plugin interface"))
-            self.logger.info(self.vapi.cli("show acl-plugin tables"))
+
+    def show_commands_at_teardown(self):
+        self.logger.info(self.vapi.cli("show l2patch"))
+        self.logger.info(self.vapi.cli("show classify tables"))
+        self.logger.info(self.vapi.cli("show l2fib verbose"))
+        self.logger.info(self.vapi.cli("show bridge-domain %s detail" %
+                                       self.bd_id))
+        self.logger.info(self.vapi.cli("show ip arp"))
+        self.logger.info(self.vapi.cli("show ip6 neighbors"))
+        cmd = "show acl-plugin sessions verbose 1"
+        self.logger.info(self.vapi.cli(cmd))
+        self.logger.info(self.vapi.cli("show acl-plugin acl"))
+        self.logger.info(self.vapi.cli("show acl-plugin interface"))
+        self.logger.info(self.vapi.cli("show acl-plugin tables"))
 
     def create_stream(self, src_ip_if, dst_ip_if, reverse, packet_sizes,
                       is_ip6, expect_blocked, expect_established,
@@ -293,7 +298,6 @@ class TestACLpluginL2L3(VppTestCase):
             last_info[i.sw_if_index] = None
 
         dst_ip_sw_if_index = dst_ip_if.sw_if_index
-        return
 
         for packet in capture:
             l3 = IP if packet.haslayer(IP) else IPv6
@@ -318,7 +322,9 @@ class TestACLpluginL2L3(VppTestCase):
                     data = scapy.compat.raw(ICMPv6Unknown(
                         scapy.compat.raw(packet[l3].payload)).msgbody)
             udp_or_icmp = packet[l3].payload
-            payload_info = self.payload_to_info(data)
+            data_obj = Raw(data)
+            # FIXME: make framework believe we are on object
+            payload_info = self.payload_to_info(data_obj)
             packet_index = payload_info.index
 
             self.assertEqual(payload_info.dst, dst_ip_sw_if_index)
@@ -345,8 +351,6 @@ class TestACLpluginL2L3(VppTestCase):
                 if l4 == UDP:
                     self.assertEqual(udp_or_icmp.sport, saved_packet[l4].sport)
                     self.assertEqual(udp_or_icmp.dport, saved_packet[l4].dport)
-            else:
-                print("Saved packet is none")
             # self.assertEqual(ip.dst, host.ip4)
 
             # UDP:

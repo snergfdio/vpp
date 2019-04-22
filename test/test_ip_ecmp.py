@@ -5,7 +5,6 @@ import random
 import socket
 from ipaddress import IPv4Address, IPv6Address, AddressValueError
 
-
 from framework import VppTestCase, VppTestRunner
 from util import ppp
 
@@ -73,9 +72,10 @@ class TestECMP(VppTestCase):
         Show various debug prints after each test.
         """
         super(TestECMP, self).tearDown()
-        if not self.vpp_dead:
-            self.logger.info(self.vapi.ppcli("show ip arp"))
-            self.logger.info(self.vapi.ppcli("show ip6 neighbors"))
+
+    def show_commands_at_teardown(self):
+        self.logger.info(self.vapi.ppcli("show ip arp"))
+        self.logger.info(self.vapi.ppcli("show ip6 neighbors"))
 
     def get_ip_address(self, ip_addr_start, ip_prefix_len):
         """
@@ -187,7 +187,9 @@ class TestECMP(VppTestCase):
                 next_hop_address = socket.inet_pton(af, nh_host_ip)
                 next_hop_sw_if_index = pg_if.sw_if_index
                 self.vapi.ip_add_del_route(
-                    dst_ip, dst_prefix_len, next_hop_address,
+                    dst_address=dst_ip,
+                    dst_address_length=dst_prefix_len,
+                    next_hop_address=next_hop_address,
                     next_hop_sw_if_index=next_hop_sw_if_index,
                     is_ipv6=is_ipv6, is_multipath=1)
                 self.logger.info("Route via %s on %s created" %

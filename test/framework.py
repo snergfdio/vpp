@@ -25,6 +25,7 @@ from hook import StepHook, PollHook, VppDiedError
 from vpp_pg_interface import VppPGInterface
 from vpp_sub_interface import VppSubInterface
 from vpp_lo_interface import VppLoInterface
+from vpp_bvi_interface import VppBviInterface
 from vpp_papi_provider import VppPapiProvider
 from vpp_papi.vpp_stats import VPPStats
 from log import RED, GREEN, YELLOW, double_line_delim, single_line_delim, \
@@ -315,6 +316,7 @@ class VppTestCase(unittest.TestCase):
                            "main-core", str(cpu_core_number), "}", "statseg",
                            "{", "socket-name", cls.stats_sock, "}", "plugins",
                            "{", "plugin", "dpdk_plugin.so", "{", "disable",
+                           "}", "plugin", "rdma_plugin.so", "{", "disable",
                            "}", "plugin", "unittest_plugin.so", "{", "enable",
                            "}"] + cls.extra_vpp_plugin_config + ["}", ]
         if cls.extra_vpp_punt_config is not None:
@@ -409,6 +411,7 @@ class VppTestCase(unittest.TestCase):
         if hasattr(cls, 'parallel_handler'):
             cls.logger.addHandler(cls.parallel_handler)
             cls.logger.propagate = False
+
         cls.tempdir = tempfile.mkdtemp(
             prefix='vpp-unittest-%s-' % cls.__name__)
         cls.stats_sock = "%s/stats.sock" % cls.tempdir
@@ -418,6 +421,8 @@ class VppTestCase(unittest.TestCase):
                       datefmt="%H:%M:%S"))
         cls.file_handler.setLevel(DEBUG)
         cls.logger.addHandler(cls.file_handler)
+        cls.logger.debug("--- setUpClass() for %s called ---" %
+                         cls.__name__)
         cls.shm_prefix = os.path.basename(cls.tempdir)
         os.chdir(cls.tempdir)
         cls.logger.info("Temporary dir is %s, shm prefix is %s",
@@ -559,6 +564,8 @@ class VppTestCase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         """ Perform final cleanup after running all tests in this test-case """
+        cls.logger.debug("--- tearDownClass() for %s called ---" %
+                         cls.__name__)
         cls.reporter.send_keep_alive(cls, 'tearDownClass')
         cls.quit()
         cls.file_handler.close()
@@ -566,18 +573,26 @@ class VppTestCase(unittest.TestCase):
         if debug_framework:
             debug_internal.on_tear_down_class(cls)
 
+    def show_commands_at_teardown(self):
+        """ Allow subclass specific teardown logging additions."""
+        self.logger.info("--- No test specific show commands provided. ---")
+
     def tearDown(self):
         """ Show various debug prints after each test """
         self.logger.debug("--- tearDown() for %s.%s(%s) called ---" %
                           (self.__class__.__name__, self._testMethodName,
                            self._testMethodDoc))
         if not self.vpp_dead:
+            self.logger.info(
+                "--- Logging show commands common to all testcases. ---")
             self.logger.debug(self.vapi.cli("show trace max 1000"))
             self.logger.info(self.vapi.ppcli("show interface"))
             self.logger.info(self.vapi.ppcli("show hardware"))
             self.logger.info(self.statistics.set_errors_str())
             self.logger.info(self.vapi.ppcli("show run"))
             self.logger.info(self.vapi.ppcli("show log"))
+            self.logger.info("Logging testcase specific show commands.")
+            self.show_commands_at_teardown()
             self.registry.remove_vpp_config(self.logger)
             # Save/Dump VPP api trace log
             api_trace = "vpp_api_trace.%s.log" % self._testMethodName
@@ -596,9 +611,6 @@ class VppTestCase(unittest.TestCase):
         """ Clear trace before running each test"""
         super(VppTestCase, self).setUp()
         self.reporter.send_keep_alive(self)
-        self.logger.debug("--- setUp() for %s.%s(%s) called ---" %
-                          (self.__class__.__name__, self._testMethodName,
-                           self._testMethodDoc))
         if self.vpp_dead:
             raise Exception("VPP is dead when setting up the test")
         self.sleep(.1, "during setUp")
@@ -690,6 +702,20 @@ class VppTestCase(unittest.TestCase):
         cls.lo_interfaces = result
         return result
 
+    @classmethod
+    def create_bvi_interfaces(cls, count):
+        """
+        Create BVI interfaces.
+
+        :param count: number of interfaces created.
+        :returns: List of created interfaces.
+        """
+        result = [VppBviInterface(cls) for i in range(count)]
+        for intf in result:
+            setattr(cls, intf.name, intf)
+        cls.bvi_interfaces = result
+        return result
+
     @staticmethod
     def extend_packet(packet, size, padding=' '):
         """
@@ -758,9 +784,10 @@ class VppTestCase(unittest.TestCase):
         Convert packet payload to _PacketInfo object
 
         :param payload: packet payload
-        :type:  <class 'scapy.packet.Raw'>
-        :param: payload_field: packet fieldname of payload "load" for
+        :type payload:  <class 'scapy.packet.Raw'>
+        :param payload_field: packet fieldname of payload "load" for
                 <class 'scapy.packet.Raw'>
+        :type payload_field: str
         :returns: _PacketInfo object containing de-serialized data from payload
 
         """
@@ -1001,9 +1028,11 @@ class VppTestCase(unittest.TestCase):
             i.assert_nothing_captured(remark=remark)
             timeout = 0.1
 
-    def send_and_expect(self, intf, pkts, output):
+    def send_and_expect(self, intf, pkts, output, n_rx=None):
+        if not n_rx:
+            n_rx = len(pkts)
         self.pg_send(intf, pkts)
-        rx = output.get_capture(len(pkts))
+        rx = output.get_capture(n_rx)
         return rx
 
     def send_and_expect_only(self, intf, pkts, output, timeout=None):

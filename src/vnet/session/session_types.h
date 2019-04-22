@@ -42,6 +42,7 @@ typedef struct _session_endpoint_cfg
   u32 ns_index;
   u8 original_tp;
   u8 *hostname;
+  u64 transport_opts;
 } session_endpoint_cfg_t;
 
 #define SESSION_IP46_ZERO			\
@@ -128,6 +129,12 @@ typedef enum
   SESSION_STATE_N_STATES,
 } session_state_t;
 
+typedef enum session_flags_
+{
+  SESSION_F_RX_EVT = 1,
+  SESSION_F_PROXY = (1 << 1),
+} session_flags_t;
+
 typedef struct session_
 {
   /** Pointers to rx/tx buffers. Once allocated, these do not move */
@@ -149,8 +156,8 @@ typedef struct session_
   /** Index of the thread that allocated the session */
   u8 thread_index;
 
-  /** Tracks last enqueue epoch to avoid generating multiple enqueue events */
-  u64 enqueue_epoch;
+  /** Session flags. See @ref session_flags_t */
+  u32 flags;
 
   /** Index of the transport connection associated to the session */
   u32 connection_index;

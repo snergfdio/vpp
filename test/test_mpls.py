@@ -52,6 +52,14 @@ def verify_mpls_stack(tst, rx, mpls_labels):
 class TestMPLS(VppTestCase):
     """ MPLS Test Case """
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestMPLS, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestMPLS, cls).tearDownClass()
+
     def setUp(self):
         super(TestMPLS, self).setUp()
 
@@ -452,7 +460,7 @@ class TestMPLS(VppTestCase):
         self.verify_capture_ip4(self.pg0, rx, tx)
 
         #
-        # disposed packets have an invalid IPv4 checkusm
+        # disposed packets have an invalid IPv4 checksum
         #
         tx = self.create_stream_labelled_ip4(self.pg0, [VppMplsLabel(33)],
                                              dst_ip=self.pg0.remote_ip4,
@@ -1281,7 +1289,7 @@ class TestMPLS(VppTestCase):
         self.send_and_assert_no_replies(self.pg0, tx, "RPF-ID drop none")
 
         #
-        # set the RPF-ID of the enrtry to match the input packet's
+        # set the RPF-ID of the entry to match the input packet's
         #
         route_232_1_1_1.update_rpf_id(55)
 
@@ -1291,7 +1299,7 @@ class TestMPLS(VppTestCase):
         self.verify_capture_ip4(self.pg1, rx, tx)
 
         #
-        # disposed packets have an invalid IPv4 checkusm
+        # disposed packets have an invalid IPv4 checksum
         #
         tx = self.create_stream_labelled_ip4(self.pg0, [VppMplsLabel(34)],
                                              dst_ip="232.1.1.1", n=65,
@@ -1351,7 +1359,7 @@ class TestMPLS(VppTestCase):
         self.send_and_assert_no_replies(self.pg0, tx, "RPF Miss")
 
         #
-        # set the RPF-ID of the enrtry to match the input packet's
+        # set the RPF-ID of the entry to match the input packet's
         #
         route_ff.update_rpf_id(55)
 
@@ -1371,7 +1379,7 @@ class TestMPLS(VppTestCase):
         self.verify_capture_ip6_icmp(self.pg0, rx, tx)
 
         #
-        # set the RPF-ID of the enrtry to not match the input packet's
+        # set the RPF-ID of the entry to not match the input packet's
         #
         route_ff.update_rpf_id(56)
         tx = self.create_stream_labelled_ip6(self.pg0,
@@ -1383,6 +1391,14 @@ class TestMPLS(VppTestCase):
 class TestMPLSDisabled(VppTestCase):
     """ MPLS disabled """
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestMPLSDisabled, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestMPLSDisabled, cls).tearDownClass()
+
     def setUp(self):
         super(TestMPLSDisabled, self).setUp()
 
@@ -1392,7 +1408,7 @@ class TestMPLSDisabled(VppTestCase):
         self.tbl = VppMplsTable(self, 0)
         self.tbl.add_vpp_config()
 
-        # PG0 is MPLS enalbed
+        # PG0 is MPLS enabled
         self.pg0.admin_up()
         self.pg0.config_ip4()
         self.pg0.resolve_arp()
@@ -1461,6 +1477,14 @@ class TestMPLSDisabled(VppTestCase):
 
 class TestMPLSPIC(VppTestCase):
     """ MPLS PIC edge convergence """
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestMPLSPIC, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestMPLSPIC, cls).tearDownClass()
 
     def setUp(self):
         super(TestMPLSPIC, self).setUp()
@@ -1573,7 +1597,7 @@ class TestMPLSPIC(VppTestCase):
         rx0 = self.pg0._get_capture(1)
         rx1 = self.pg1._get_capture(1)
 
-        # not testig the LB hashing algorithm so we're not concerned
+        # not testing the LB hashing algorithm so we're not concerned
         # with the split ratio, just as long as neither is 0
         self.assertNotEqual(0, len(rx0))
         self.assertNotEqual(0, len(rx1))
@@ -1581,7 +1605,7 @@ class TestMPLSPIC(VppTestCase):
         #
         # use a test CLI command to stop the FIB walk process, this
         # will prevent the FIB converging the VPN routes and thus allow
-        # us to probe the interim (psot-fail, pre-converge) state
+        # us to probe the interim (post-fail, pre-converge) state
         #
         self.vapi.ppcli("test fib-walk-process disable")
 
@@ -1681,7 +1705,7 @@ class TestMPLSPIC(VppTestCase):
         #
         # use a test CLI command to stop the FIB walk process, this
         # will prevent the FIB converging the VPN routes and thus allow
-        # us to probe the interim (psot-fail, pre-converge) state
+        # us to probe the interim (post-fail, pre-converge) state
         #
         self.vapi.ppcli("test fib-walk-process disable")
 
@@ -1781,7 +1805,7 @@ class TestMPLSPIC(VppTestCase):
         #
         # use a test CLI command to stop the FIB walk process, this
         # will prevent the FIB converging the VPN routes and thus allow
-        # us to probe the interim (psot-fail, pre-converge) state
+        # us to probe the interim (post-fail, pre-converge) state
         #
         self.vapi.ppcli("test fib-walk-process disable")
 
@@ -1829,6 +1853,14 @@ class TestMPLSPIC(VppTestCase):
 
 class TestMPLSL2(VppTestCase):
     """ MPLS-L2 """
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestMPLSL2, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestMPLSL2, cls).tearDownClass()
 
     def setUp(self):
         super(TestMPLSL2, self).setUp()
@@ -1937,7 +1969,7 @@ class TestMPLSL2(VppTestCase):
         self.assertEqual(rx0[0][Ether].src, payload[Ether].src)
 
         #
-        # Inject a packet from the custoer/L2 side
+        # Inject a packet from the customer/L2 side
         #
         tx1 = pcore[MPLS].payload * 65
         rx1 = self.send_and_expect(self.pg1, tx1, self.pg0)
@@ -1972,10 +2004,10 @@ class TestMPLSL2(VppTestCase):
         #
         # add to tunnel to the customers bridge-domain
         #
-        self.vapi.sw_interface_set_l2_bridge(mpls_tun.sw_if_index,
-                                             bd_id=1)
-        self.vapi.sw_interface_set_l2_bridge(self.pg1.sw_if_index,
-                                             bd_id=1)
+        self.vapi.sw_interface_set_l2_bridge(
+            rx_sw_if_index=mpls_tun.sw_if_index, bd_id=1)
+        self.vapi.sw_interface_set_l2_bridge(
+            rx_sw_if_index=self.pg1.sw_if_index, bd_id=1)
 
         #
         # Packet from the customer interface and from the core
@@ -2027,12 +2059,10 @@ class TestMPLSL2(VppTestCase):
         #
         # remove interfaces from customers bridge-domain
         #
-        self.vapi.sw_interface_set_l2_bridge(mpls_tun.sw_if_index,
-                                             bd_id=1,
-                                             enable=0)
-        self.vapi.sw_interface_set_l2_bridge(self.pg1.sw_if_index,
-                                             bd_id=1,
-                                             enable=0)
+        self.vapi.sw_interface_set_l2_bridge(
+            rx_sw_if_index=mpls_tun.sw_if_index, bd_id=1, enable=0)
+        self.vapi.sw_interface_set_l2_bridge(
+            rx_sw_if_index=self.pg1.sw_if_index, bd_id=1, enable=0)
 
 if __name__ == '__main__':
     unittest.main(testRunner=VppTestRunner)

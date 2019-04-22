@@ -24,8 +24,12 @@ class TestSRv6(VppTestCase):
     """ SRv6 Test Case """
 
     @classmethod
-    def setUpClass(self):
-        super(TestSRv6, self).setUpClass()
+    def setUpClass(cls):
+        super(TestSRv6, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestSRv6, cls).tearDownClass()
 
     def setUp(self):
         """ Perform test setup before each test case.
@@ -1235,7 +1239,7 @@ class TestSRv6(VppTestCase):
         self.assertIsNotNone(r, 'No response msg for add_del_table')
         table_index = r.new_table_index
 
-        # add the source routign node as a ip6 inacl netxt node
+        # add the source routing node as a ip6 inacl netxt node
         r = self.vapi.add_node_next('ip6-inacl',
                                     'sr-pl-rewrite-insert')
         inacl_next_node_index = r.node_index

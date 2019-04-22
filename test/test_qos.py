@@ -20,6 +20,14 @@ from scapy.contrib.mpls import MPLS
 class TestQOS(VppTestCase):
     """ QOS Test Case """
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestQOS, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestQOS, cls).tearDownClass()
+
     def setUp(self):
         super(TestQOS, self).setUp()
 
@@ -141,7 +149,7 @@ class TestQOS(VppTestCase):
             self.assertEqual(p[IPv6].tc, 1)
 
         #
-        # Enable QoS recrding on IP input for pg0
+        # Enable QoS recording on IP input for pg0
         #
         self.vapi.qos_record_enable_disable(self.pg0.sw_if_index,
                                             QOS_SOURCE.IP,
@@ -263,7 +271,7 @@ class TestQOS(VppTestCase):
             self.assertEqual(p[IP].tos, 254)
 
         #
-        # clean-up the masp
+        # clean-up the map
         #
         self.vapi.qos_egress_map_delete(1)
         self.vapi.qos_egress_map_delete(4)

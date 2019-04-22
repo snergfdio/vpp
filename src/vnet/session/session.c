@@ -106,11 +106,18 @@ session_send_ctrl_evt_to_thread (session_t * s, session_evt_type_t evt_type)
 }
 
 void
+session_send_rpc_evt_to_thread_force (u32 thread_index, void *fp,
+				      void *rpc_args)
+{
+  session_send_evt_to_thread (fp, rpc_args, thread_index,
+			      SESSION_CTRL_EVT_RPC);
+}
+
+void
 session_send_rpc_evt_to_thread (u32 thread_index, void *fp, void *rpc_args)
 {
   if (thread_index != vlib_get_thread_index ())
-    session_send_evt_to_thread (fp, rpc_args, thread_index,
-				SESSION_CTRL_EVT_RPC);
+    session_send_rpc_evt_to_thread_force (thread_index, fp, rpc_args);
   else
     {
       void (*fnp) (void *) = fp;
@@ -167,9 +174,15 @@ session_alloc (u32 thread_index)
 void
 session_free (session_t * s)
 {
-  pool_put (session_main.wrk[s->thread_index].sessions, s);
   if (CLIB_DEBUG)
-    clib_memset (s, 0xFA, sizeof (*s));
+    {
+      u8 thread_index = s->thread_index;
+      clib_memset (s, 0xFA, sizeof (*s));
+      pool_put (session_main.wrk[thread_index].sessions, s);
+      return;
+    }
+  SESSION_EVT_DBG (SESSION_EVT_FREE, s);
+  pool_put (session_main.wrk[s->thread_index].sessions, s);
 }
 
 void
@@ -207,7 +220,6 @@ session_alloc_for_connection (transport_connection_t * tc)
 
   s = session_alloc (thread_index);
   s->session_type = session_type_from_proto_and_ip (tc->proto, tc->is_ip4);
-  s->enqueue_epoch = (u64) ~ 0;
   s->session_state = SESSION_STATE_CLOSED;
 
   /* Attach transport to session and vice versa */
@@ -382,9 +394,9 @@ session_enqueue_stream_connection (transport_connection_t * tc,
       session_worker_t *wrk;
 
       wrk = session_main_get_worker (s->thread_index);
-      if (s->enqueue_epoch != wrk->current_enqueue_epoch[tc->proto])
+      if (!(s->flags & SESSION_F_RX_EVT))
 	{
-	  s->enqueue_epoch = wrk->current_enqueue_epoch[tc->proto];
+	  s->flags |= SESSION_F_RX_EVT;
 	  vec_add1 (wrk->session_to_enqueue[tc->proto], s->session_index);
 	}
     }
@@ -399,7 +411,7 @@ session_enqueue_dgram_connection (session_t * s,
 {
   int enqueued = 0, rv, in_order_off;
 
-  ASSERT (svm_fifo_max_enqueue (s->rx_fifo)
+  ASSERT (svm_fifo_max_enqueue_prod (s->rx_fifo)
 	  >= b->current_length + sizeof (*hdr));
 
   svm_fifo_enqueue_nowait (s->rx_fifo, sizeof (session_dgram_hdr_t),
@@ -420,9 +432,9 @@ session_enqueue_dgram_connection (session_t * s,
       session_worker_t *wrk;
 
       wrk = session_main_get_worker (s->thread_index);
-      if (s->enqueue_epoch != wrk->current_enqueue_epoch[proto])
+      if (!(s->flags & SESSION_F_RX_EVT))
 	{
-	  s->enqueue_epoch = wrk->current_enqueue_epoch[proto];
+	  s->flags |= SESSION_F_RX_EVT;
 	  vec_add1 (wrk->session_to_enqueue[proto], s->session_index);
 	}
     }
@@ -480,6 +492,11 @@ static inline int
 session_enqueue_notify_inline (session_t * s)
 {
   app_worker_t *app_wrk;
+  u32 session_index;
+  u8 n_subscribers;
+
+  session_index = s->session_index;
+  n_subscribers = svm_fifo_n_subscribers (s->rx_fifo);
 
   app_wrk = app_worker_get_if_valid (s->app_wrk_index);
   if (PREDICT_FALSE (!app_wrk))
@@ -491,17 +508,21 @@ session_enqueue_notify_inline (session_t * s)
   /* *INDENT-OFF* */
   SESSION_EVT_DBG(SESSION_EVT_ENQ, s, ({
       ed->data[0] = SESSION_IO_EVT_RX;
-      ed->data[1] = svm_fifo_max_dequeue (s->rx_fifo);
+      ed->data[1] = svm_fifo_max_dequeue_prod (s->rx_fifo);
   }));
   /* *INDENT-ON* */
 
+  s->flags &= ~SESSION_F_RX_EVT;
   if (PREDICT_FALSE (app_worker_lock_and_send_event (app_wrk, s,
 						     SESSION_IO_EVT_RX)))
     return -1;
 
-  if (PREDICT_FALSE (svm_fifo_n_subscribers (s->rx_fifo)))
-    return session_notify_subscribers (app_wrk->app_index, s,
-				       s->rx_fifo, SESSION_IO_EVT_RX);
+  if (PREDICT_FALSE (n_subscribers))
+    {
+      s = session_get (session_index, vlib_get_thread_index ());
+      return session_notify_subscribers (app_wrk->app_index, s,
+					 s->rx_fifo, SESSION_IO_EVT_RX);
+    }
 
   return 0;
 }
@@ -561,16 +582,12 @@ session_main_flush_enqueue_events (u8 transport_proto, u32 thread_index)
 	  continue;
 	}
 
-      if (svm_fifo_has_event (s->rx_fifo) || svm_fifo_is_empty (s->rx_fifo))
-	continue;
-
       if (PREDICT_FALSE (session_enqueue_notify_inline (s)))
 	errors++;
     }
 
   vec_reset_length (indices);
   wrk->session_to_enqueue[transport_proto] = indices;
-  wrk->current_enqueue_epoch[transport_proto]++;
 
   return errors;
 }
@@ -819,17 +836,16 @@ session_transport_closed_notify (transport_connection_t * tc)
 void
 session_transport_reset_notify (transport_connection_t * tc)
 {
-  session_t *s;
   app_worker_t *app_wrk;
-  application_t *app;
+  session_t *s;
+
   s = session_get (tc->s_index, tc->thread_index);
   svm_fifo_dequeue_drop_all (s->tx_fifo);
   if (s->session_state >= SESSION_STATE_TRANSPORT_CLOSING)
     return;
   s->session_state = SESSION_STATE_TRANSPORT_CLOSING;
   app_wrk = app_worker_get (s->app_wrk_index);
-  app = application_get (app_wrk->app_index);
-  app->cb_fns.session_reset_callback (s);
+  app_worker_reset_notify (app_wrk, s);
 }
 
 int
@@ -881,6 +897,7 @@ session_open_cl (u32 app_wrk_index, session_endpoint_t * rmt, u32 opaque)
   transport_connection_t *tc;
   transport_endpoint_cfg_t *tep;
   app_worker_t *app_wrk;
+  session_handle_t sh;
   session_t *s;
   int rv;
 
@@ -904,6 +921,9 @@ session_open_cl (u32 app_wrk_index, session_endpoint_t * rmt, u32 opaque)
       session_free (s);
       return -1;
     }
+
+  sh = session_handle (s);
+  session_lookup_add_connection (tc, sh);
 
   return app_worker_connect_notify (app_wrk, s, opaque);
 }
@@ -1092,7 +1112,7 @@ session_transport_close (session_t * s)
    * point, either after sending everything or after a timeout, call delete
    * notify. This will finally lead to the complete cleanup of the session.
    */
-  if (svm_fifo_max_dequeue (s->tx_fifo))
+  if (svm_fifo_max_dequeue_cons (s->tx_fifo))
     s->session_state = SESSION_STATE_CLOSED_WAITING;
   else
     s->session_state = SESSION_STATE_CLOSED;
@@ -1294,7 +1314,7 @@ session_manager_main_enable (vlib_main_t * vm)
   vlib_thread_main_t *vtm = vlib_get_thread_main ();
   u32 num_threads, preallocated_sessions_per_worker;
   session_worker_t *wrk;
-  int i, j;
+  int i;
 
   num_threads = 1 /* main thread */  + vtm->n_threads;
 
@@ -1303,12 +1323,6 @@ session_manager_main_enable (vlib_main_t * vm)
 
   /* Allocate cache line aligned worker contexts */
   vec_validate_aligned (smm->wrk, num_threads - 1, CLIB_CACHE_LINE_BYTES);
-
-  for (i = 0; i < TRANSPORT_N_PROTO; i++)
-    {
-      for (j = 0; j < num_threads; j++)
-	smm->wrk[j].current_enqueue_epoch[i] = 1;
-    }
 
   for (i = 0; i < num_threads; i++)
     {

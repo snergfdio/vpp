@@ -15,6 +15,14 @@ from scapy.layers.inet6 import IPv6, ICMPv6TimeExceeded
 class TestMAP(VppTestCase):
     """ MAP Test Case """
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestMAP, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestMAP, cls).tearDownClass()
+
     def setUp(self):
         super(TestMAP, self).setUp()
 
@@ -151,7 +159,7 @@ class TestMAP(VppTestCase):
         self.vapi.ppcli("map params pre-resolve ip6-nh 4001::1")
 
         self.send_and_assert_no_replies(self.pg0, v4,
-                                        "resovled via default route")
+                                        "resolved via default route")
 
         #
         # Add a route to 4001::1. Expect the encapped traffic to be

@@ -10,18 +10,12 @@ from scapy.layers.inet6 import IPv6
 from scapy.volatile import RandMAC, RandIP
 
 from framework import VppTestCase, VppTestRunner
-from vpp_sub_interface import VppDot1QSubint
-from vpp_gre_interface import VppGreInterface, VppGre6Interface
+from vpp_sub_interface import L2_VTR_OP, VppDot1QSubint
+from vpp_gre_interface import VppGreInterface
 from vpp_ip import DpoProto
 from vpp_ip_route import VppIpRoute, VppRoutePath, VppIpTable
-from vpp_papi_provider import L2_VTR_OP
 from util import ppp, ppc
-
-
-class GreTunnelTypes:
-    TT_L3 = 0
-    TT_TEB = 1
-    TT_ERSPAN = 2
+from vpp_papi import VppEnum
 
 
 class TestGRE(VppTestCase):
@@ -30,6 +24,10 @@ class TestGRE(VppTestCase):
     @classmethod
     def setUpClass(cls):
         super(TestGRE, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestGRE, cls).tearDownClass()
 
     def setUp(self):
         super(TestGRE, self).setUp()
@@ -438,7 +436,7 @@ class TestGRE(VppTestCase):
 
         #
         # Send a packet stream that is routed into the tunnel
-        #  - they are all dropped since the tunnel's desintation IP
+        #  - they are all dropped since the tunnel's destintation IP
         #    is unresolved - or resolves via the default route - which
         #    which is a drop.
         #
@@ -564,9 +562,9 @@ class TestGRE(VppTestCase):
         #  - assign an IP Address
         #  - Add a route via the tunnel
         #
-        gre_if = VppGre6Interface(self,
-                                  self.pg2.local_ip6,
-                                  "1002::1")
+        gre_if = VppGreInterface(self,
+                                 self.pg2.local_ip6,
+                                 "1002::1")
         gre_if.add_vpp_config()
         gre_if.admin_up()
         gre_if.config_ip6()
@@ -582,7 +580,7 @@ class TestGRE(VppTestCase):
 
         #
         # Send a packet stream that is routed into the tunnel
-        #  - they are all dropped since the tunnel's desintation IP
+        #  - they are all dropped since the tunnel's destintation IP
         #    is unresolved - or resolves via the default route - which
         #    which is a drop.
         #
@@ -759,10 +757,12 @@ class TestGRE(VppTestCase):
         #
         gre_if1 = VppGreInterface(self, self.pg0.local_ip4,
                                   "2.2.2.2",
-                                  type=GreTunnelTypes.TT_TEB)
+                                  type=(VppEnum.vl_api_gre_tunnel_type_t.
+                                        GRE_API_TUNNEL_TYPE_TEB))
         gre_if2 = VppGreInterface(self, self.pg0.local_ip4,
                                   "2.2.2.3",
-                                  type=GreTunnelTypes.TT_TEB)
+                                  type=(VppEnum.vl_api_gre_tunnel_type_t.
+                                        GRE_API_TUNNEL_TYPE_TEB))
         gre_if1.add_vpp_config()
         gre_if2.add_vpp_config()
 
@@ -827,12 +827,12 @@ class TestGRE(VppTestCase):
         # Configure both to pop thier respective VLAN tags,
         # so that during the x-coonect they will subsequently push
         #
-        self.vapi.l2_interface_vlan_tag_rewrite(gre_if_12.sw_if_index,
-                                                L2_VTR_OP.L2_POP_1,
-                                                12)
-        self.vapi.l2_interface_vlan_tag_rewrite(gre_if_11.sw_if_index,
-                                                L2_VTR_OP.L2_POP_1,
-                                                11)
+        self.vapi.l2_interface_vlan_tag_rewrite(
+            sw_if_index=gre_if_12.sw_if_index, vtr_op=L2_VTR_OP.L2_POP_1,
+            push_dot1q=12)
+        self.vapi.l2_interface_vlan_tag_rewrite(
+            sw_if_index=gre_if_11.sw_if_index, vtr_op=L2_VTR_OP.L2_POP_1,
+            push_dot1q=11)
 
         #
         # Send traffic in both directiond - expect the VLAN tags to

@@ -330,6 +330,14 @@ app_worker_close_notify (app_worker_t * app_wrk, session_t * s)
 }
 
 int
+app_worker_reset_notify (app_worker_t * app_wrk, session_t * s)
+{
+  application_t *app = application_get (app_wrk->app_index);
+  app->cb_fns.session_reset_callback (s);
+  return 0;
+}
+
+int
 app_worker_builtin_rx (app_worker_t * app_wrk, session_t * s)
 {
   application_t *app = application_get (app_wrk->app_index);
@@ -361,21 +369,11 @@ app_worker_own_session (app_worker_t * app_wrk, session_t * s)
   if (app_worker_alloc_session_fifos (sm, s))
     return -1;
 
-  if (!svm_fifo_is_empty (rxf))
-    {
-      clib_memcpy_fast (s->rx_fifo->data, rxf->data, rxf->nitems);
-      s->rx_fifo->head = rxf->head;
-      s->rx_fifo->tail = rxf->tail;
-      s->rx_fifo->cursize = rxf->cursize;
-    }
+  if (!svm_fifo_is_empty_cons (rxf))
+    svm_fifo_clone (s->rx_fifo, rxf);
 
-  if (!svm_fifo_is_empty (txf))
-    {
-      clib_memcpy_fast (s->tx_fifo->data, txf->data, txf->nitems);
-      s->tx_fifo->head = txf->head;
-      s->tx_fifo->tail = txf->tail;
-      s->tx_fifo->cursize = txf->cursize;
-    }
+  if (!svm_fifo_is_empty_cons (txf))
+    svm_fifo_clone (s->tx_fifo, txf);
 
   segment_manager_dealloc_fifos (rxf, txf);
 
@@ -453,7 +451,7 @@ app_worker_first_listener (app_worker_t * app_wrk, u8 fib_proto,
    hash_foreach (handle, sm_index, app_wrk->listeners_table, ({
      listener = listen_session_get_from_handle (handle);
      if (listener->session_type == sst
-	 && listener->enqueue_epoch != SESSION_PROXY_LISTENER_INDEX)
+	 && !(listener->flags & SESSION_F_PROXY))
        return listener;
    }));
   /* *INDENT-ON* */
@@ -476,8 +474,7 @@ app_worker_proxy_listener (app_worker_t * app_wrk, u8 fib_proto,
   /* *INDENT-OFF* */
    hash_foreach (handle, sm_index, app_wrk->listeners_table, ({
      listener = listen_session_get_from_handle (handle);
-     if (listener->session_type == sst
-	 && listener->enqueue_epoch == SESSION_PROXY_LISTENER_INDEX)
+     if (listener->session_type == sst && (listener->flags & SESSION_F_PROXY))
        return listener;
    }));
   /* *INDENT-ON* */
@@ -546,18 +543,10 @@ app_send_io_evt_rx (app_worker_t * app_wrk, session_t * s, u8 lock)
 
   if (PREDICT_FALSE (s->session_state != SESSION_STATE_READY
 		     && s->session_state != SESSION_STATE_LISTENING))
-    {
-      /* Session is closed so app will never clean up. Flush rx fifo */
-      if (s->session_state == SESSION_STATE_CLOSED)
-	svm_fifo_dequeue_drop_all (s->rx_fifo);
-      return 0;
-    }
+    return 0;
 
   if (app_worker_application_is_builtin (app_wrk))
-    {
-      application_t *app = application_get (app_wrk->app_index);
-      return app->cb_fns.builtin_app_rx_callback (s);
-    }
+    return app_worker_builtin_rx (app_wrk, s);
 
   if (svm_fifo_has_event (s->rx_fifo))
     return 0;

@@ -15,7 +15,7 @@ from scapy.layers.inet6 import IPv6, IPv6ExtHdrFragment, ICMPv6ParamProblem,\
 
 from framework import VppTestCase, VppTestRunner
 from util import ppp, fragment_rfc791, fragment_rfc8200
-from vpp_gre_interface import VppGreInterface, VppGre6Interface
+from vpp_gre_interface import VppGreInterface
 from vpp_ip import DpoProto
 from vpp_ip_route import VppIpRoute, VppRoutePath
 
@@ -219,6 +219,10 @@ class TestIPv4Reassembly(TestIPReassemblyMixin, VppTestCase):
         cls.create_stream(cls.packet_sizes)
         cls.create_fragments()
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestIPv4Reassembly, cls).tearDownClass()
+
     def setUp(self):
         """ Test setup - force timeout on existing reassemblies """
         super(TestIPv4Reassembly, self).setUp()
@@ -232,6 +236,8 @@ class TestIPv4Reassembly(TestIPReassemblyMixin, VppTestCase):
 
     def tearDown(self):
         super(TestIPv4Reassembly, self).tearDown()
+
+    def show_commands_at_teardown(self):
         self.logger.debug(self.vapi.ppcli("show ip4-reassembly details"))
         self.logger.debug(self.vapi.ppcli("show buffers"))
 
@@ -549,6 +555,10 @@ class TestIPv6Reassembly(TestIPReassemblyMixin, VppTestCase):
         cls.create_stream(cls.packet_sizes)
         cls.create_fragments()
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestIPv6Reassembly, cls).tearDownClass()
+
     def setUp(self):
         """ Test setup - force timeout on existing reassemblies """
         super(TestIPv6Reassembly, self).setUp()
@@ -564,6 +574,8 @@ class TestIPv6Reassembly(TestIPReassemblyMixin, VppTestCase):
 
     def tearDown(self):
         super(TestIPv6Reassembly, self).tearDown()
+
+    def show_commands_at_teardown(self):
         self.logger.debug(self.vapi.ppcli("show ip6-reassembly details"))
         self.logger.debug(self.vapi.ppcli("show buffers"))
 
@@ -845,6 +857,10 @@ class TestIPv4ReassemblyLocalNode(VppTestCase):
         cls.create_stream()
         cls.create_fragments()
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestIPv4ReassemblyLocalNode, cls).tearDownClass()
+
     def setUp(self):
         """ Test setup - force timeout on existing reassemblies """
         super(TestIPv4ReassemblyLocalNode, self).setUp()
@@ -856,6 +872,8 @@ class TestIPv4ReassemblyLocalNode(VppTestCase):
 
     def tearDown(self):
         super(TestIPv4ReassemblyLocalNode, self).tearDown()
+
+    def show_commands_at_teardown(self):
         self.logger.debug(self.vapi.ppcli("show ip4-reassembly details"))
         self.logger.debug(self.vapi.ppcli("show buffers"))
 
@@ -964,6 +982,10 @@ class TestFIFReassembly(VppTestCase):
         cls.packet_sizes = [64, 512, 1518, 9018]
         cls.padding = " abcdefghijklmn"
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestFIFReassembly, cls).tearDownClass()
+
     def setUp(self):
         """ Test setup - force timeout on existing reassemblies """
         super(TestFIFReassembly, self).setUp()
@@ -984,10 +1006,12 @@ class TestFIFReassembly(VppTestCase):
                                     expire_walk_interval_ms=10000, is_ip6=1)
 
     def tearDown(self):
+        super(TestFIFReassembly, self).tearDown()
+
+    def show_commands_at_teardown(self):
         self.logger.debug(self.vapi.ppcli("show ip4-reassembly details"))
         self.logger.debug(self.vapi.ppcli("show ip6-reassembly details"))
         self.logger.debug(self.vapi.ppcli("show buffers"))
-        super(TestFIFReassembly, self).tearDown()
 
     def verify_capture(self, capture, ip_class, dropped_packet_indexes=[]):
         """Verify captured packet stream.
@@ -1098,7 +1122,7 @@ class TestFIFReassembly(VppTestCase):
         # it shared for multiple test cases
         self.tun_ip6 = "1002::1"
 
-        self.gre6 = VppGre6Interface(self, self.src_if.local_ip6, self.tun_ip6)
+        self.gre6 = VppGreInterface(self, self.src_if.local_ip6, self.tun_ip6)
         self.gre6.add_vpp_config()
         self.gre6.admin_up()
         self.gre6.config_ip6()

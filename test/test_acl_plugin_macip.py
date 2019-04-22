@@ -18,9 +18,9 @@ from scapy.layers.inet6 import IPv6
 
 from framework import VppTestCase, VppTestRunner, running_extended_tests
 from vpp_lo_interface import VppLoInterface
-from vpp_papi_provider import L2_VTR_OP
-from vpp_sub_interface import VppSubInterface, VppDot1QSubint, VppDot1ADSubint
-from vpp_papi_provider import L2_PORT_TYPE
+from vpp_l2 import L2_PORT_TYPE
+from vpp_sub_interface import L2_VTR_OP, VppSubInterface, VppDot1QSubint, \
+    VppDot1ADSubint
 
 
 class MethodHolder(VppTestCase):
@@ -95,16 +95,16 @@ class MethodHolder(VppTestCase):
 
             # Create BD with MAC learning enabled and put interfaces to this BD
             cls.vapi.sw_interface_set_l2_bridge(
-                cls.loop0.sw_if_index, bd_id=cls.bd_id,
+                rx_sw_if_index=cls.loop0.sw_if_index, bd_id=cls.bd_id,
                 port_type=L2_PORT_TYPE.BVI)
             cls.vapi.sw_interface_set_l2_bridge(
-                cls.pg0.sw_if_index, bd_id=cls.bd_id)
+                rx_sw_if_index=cls.pg0.sw_if_index, bd_id=cls.bd_id)
             cls.vapi.sw_interface_set_l2_bridge(
-                cls.pg1.sw_if_index, bd_id=cls.bd_id)
+                rx_sw_if_index=cls.pg1.sw_if_index, bd_id=cls.bd_id)
             cls.vapi.sw_interface_set_l2_bridge(
-                cls.subifs[0].sw_if_index, bd_id=cls.bd_id)
+                rx_sw_if_index=cls.subifs[0].sw_if_index, bd_id=cls.bd_id)
             cls.vapi.sw_interface_set_l2_bridge(
-                cls.subifs[1].sw_if_index, bd_id=cls.bd_id)
+                rx_sw_if_index=cls.subifs[1].sw_if_index, bd_id=cls.bd_id)
 
             # Configure IPv4/6 addresses on loop interface and routed interface
             cls.loop0.config_ip4()
@@ -151,6 +151,10 @@ class MethodHolder(VppTestCase):
             super(MethodHolder, cls).tearDownClass()
             raise
 
+    @classmethod
+    def tearDownClass(cls):
+        super(MethodHolder, cls).tearDownClass()
+
     def setUp(self):
         super(MethodHolder, self).setUp()
         self.reset_packet_infos()
@@ -161,19 +165,20 @@ class MethodHolder(VppTestCase):
         Show various debug prints after each test.
         """
         super(MethodHolder, self).tearDown()
-        if not self.vpp_dead:
-            self.logger.info(self.vapi.ppcli("show interface address"))
-            self.logger.info(self.vapi.ppcli("show hardware"))
-            self.logger.info(self.vapi.ppcli("sh acl-plugin macip acl"))
-            self.logger.info(self.vapi.ppcli("sh acl-plugin macip interface"))
-            self.logger.info(self.vapi.ppcli("sh classify tables verbose"))
-            self.logger.info(self.vapi.ppcli("sh acl-plugin acl"))
-            self.logger.info(self.vapi.ppcli("sh acl-plugin interface"))
-            self.logger.info(self.vapi.ppcli("sh acl-plugin tables"))
-            # print(self.vapi.ppcli("show interface address"))
-            # print(self.vapi.ppcli("show hardware"))
-            # print(self.vapi.ppcli("sh acl-plugin macip interface"))
-            # print(self.vapi.ppcli("sh acl-plugin macip acl"))
+
+    def show_commands_at_teardown(self):
+        self.logger.info(self.vapi.ppcli("show interface address"))
+        self.logger.info(self.vapi.ppcli("show hardware"))
+        self.logger.info(self.vapi.ppcli("sh acl-plugin macip acl"))
+        self.logger.info(self.vapi.ppcli("sh acl-plugin macip interface"))
+        self.logger.info(self.vapi.ppcli("sh classify tables verbose"))
+        self.logger.info(self.vapi.ppcli("sh acl-plugin acl"))
+        self.logger.info(self.vapi.ppcli("sh acl-plugin interface"))
+        self.logger.info(self.vapi.ppcli("sh acl-plugin tables"))
+        # print(self.vapi.ppcli("show interface address"))
+        # print(self.vapi.ppcli("show hardware"))
+        # print(self.vapi.ppcli("sh acl-plugin macip interface"))
+        # print(self.vapi.ppcli("sh acl-plugin macip acl"))
         self.delete_acls()
 
     def macip_acl_dump_debug(self):
@@ -708,6 +713,14 @@ class MethodHolder(VppTestCase):
 class TestMACIP_IP4(MethodHolder):
     """MACIP with IP4 traffic"""
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestMACIP_IP4, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestMACIP_IP4, cls).tearDownClass()
+
     def test_acl_bridged_ip4_exactMAC_exactIP(self):
         """ IP4 MACIP exactMAC|exactIP ACL bridged traffic
         """
@@ -841,6 +854,14 @@ class TestMACIP_IP4(MethodHolder):
 
 class TestMACIP_IP6(MethodHolder):
     """MACIP with IP6 traffic"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestMACIP_IP6, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestMACIP_IP6, cls).tearDownClass()
 
     def test_acl_bridged_ip6_exactMAC_exactIP(self):
         """ IP6 MACIP exactMAC|exactIP ACL bridged traffic
@@ -979,6 +1000,14 @@ class TestMACIP_IP6(MethodHolder):
 
 class TestMACIP(MethodHolder):
     """MACIP Tests"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestMACIP, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestMACIP, cls).tearDownClass()
 
     def test_acl_1_2(self):
         """ MACIP ACL with 2 entries
@@ -1156,6 +1185,14 @@ class TestMACIP(MethodHolder):
 class TestACL_dot1q_bridged(MethodHolder):
     """ACL on dot1q bridged subinterfaces Tests"""
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestACL_dot1q_bridged, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestACL_dot1q_bridged, cls).tearDownClass()
+
     def test_acl_bridged_ip4_subif_dot1q(self):
         """ IP4 ACL SubIf Dot1Q bridged traffic"""
         self.run_traffic(self.EXACT_MAC, self.EXACT_IP, self.BRIDGED,
@@ -1170,6 +1207,14 @@ class TestACL_dot1q_bridged(MethodHolder):
 class TestACL_dot1ad_bridged(MethodHolder):
     """ACL on dot1ad bridged subinterfaces Tests"""
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestACL_dot1ad_bridged, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestACL_dot1ad_bridged, cls).tearDownClass()
+
     def test_acl_bridged_ip4_subif_dot1ad(self):
         """ IP4 ACL SubIf Dot1AD bridged traffic"""
         self.run_traffic(self.EXACT_MAC, self.EXACT_IP, self.BRIDGED,
@@ -1183,6 +1228,14 @@ class TestACL_dot1ad_bridged(MethodHolder):
 
 class TestACL_dot1q_routed(MethodHolder):
     """ACL on dot1q routed subinterfaces Tests"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestACL_dot1q_routed, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestACL_dot1q_routed, cls).tearDownClass()
 
     def test_acl_routed_ip4_subif_dot1q(self):
         """ IP4 ACL SubIf Dot1Q routed traffic"""
@@ -1209,6 +1262,14 @@ class TestACL_dot1q_routed(MethodHolder):
 
 class TestACL_dot1ad_routed(MethodHolder):
     """ACL on dot1ad routed subinterfaces Tests"""
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestACL_dot1ad_routed, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestACL_dot1ad_routed, cls).tearDownClass()
 
     def test_acl_routed_ip6_subif_dot1ad(self):
         """ IP6 ACL SubIf Dot1AD routed traffic"""

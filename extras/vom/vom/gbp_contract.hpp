@@ -37,7 +37,7 @@ public:
   typedef std::set<gbp_rule> gbp_rules_t;
 
   /**
-   * The key for a contract is the pari of EPG-IDs
+   * The key for a contract is the pair of EPG-IDs
    */
   typedef std::pair<sclass_t, sclass_t> key_t;
 
@@ -164,7 +164,7 @@ private:
   /**
    * HW configuration for the result of creating the endpoint
    */
-  HW::item<bool> m_hw;
+  HW::item<uint32_t> m_hw;
 
   /**
    * The source EPG ID

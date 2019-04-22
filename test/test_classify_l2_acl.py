@@ -105,8 +105,8 @@ class TestClassifyAcl(VppTestCase):
             cls.vapi.bridge_domain_add_del(bd_id=cls.bd_id, uu_flood=1,
                                            learn=1)
             for pg_if in cls.pg_interfaces:
-                cls.vapi.sw_interface_set_l2_bridge(pg_if.sw_if_index,
-                                                    bd_id=cls.bd_id)
+                cls.vapi.sw_interface_set_l2_bridge(
+                    rx_sw_if_index=pg_if.sw_if_index, bd_id=cls.bd_id)
 
             # Set up all interfaces
             for i in cls.pg_interfaces:
@@ -132,6 +132,10 @@ class TestClassifyAcl(VppTestCase):
             super(TestClassifyAcl, cls).tearDownClass()
             raise
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestClassifyAcl, cls).tearDownClass()
+
     def setUp(self):
         super(TestClassifyAcl, self).setUp()
 
@@ -143,11 +147,6 @@ class TestClassifyAcl(VppTestCase):
         Show various debug prints after each test.
         """
         if not self.vpp_dead:
-            self.logger.info(self.vapi.ppcli("show inacl type l2"))
-            self.logger.info(self.vapi.ppcli("show outacl type l2"))
-            self.logger.info(self.vapi.ppcli("show classify tables verbose"))
-            self.logger.info(self.vapi.ppcli("show bridge-domain %s detail"
-                                             % self.bd_id))
             if self.acl_active_table == 'mac_inout':
                 self.output_acl_set_interface(
                     self.pg1, self.acl_tbl_idx.get(self.acl_active_table), 0)
@@ -164,6 +163,13 @@ class TestClassifyAcl(VppTestCase):
                 self.acl_active_table = ''
 
         super(TestClassifyAcl, self).tearDown()
+
+    def show_commands_at_teardown(self):
+        self.logger.info(self.vapi.ppcli("show inacl type l2"))
+        self.logger.info(self.vapi.ppcli("show outacl type l2"))
+        self.logger.info(self.vapi.ppcli("show classify tables verbose"))
+        self.logger.info(self.vapi.ppcli("show bridge-domain %s detail"
+                                         % self.bd_id))
 
     @staticmethod
     def build_mac_mask(dst_mac='', src_mac='', ether_type=''):

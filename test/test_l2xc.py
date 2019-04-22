@@ -76,6 +76,10 @@ class TestL2xc(VppTestCase):
             super(TestL2xc, cls).tearDownClass()
             raise
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestL2xc, cls).tearDownClass()
+
     def setUp(self):
         super(TestL2xc, self).setUp()
         self.reset_packet_infos()
@@ -85,8 +89,9 @@ class TestL2xc(VppTestCase):
         Show various debug prints after each test.
         """
         super(TestL2xc, self).tearDown()
-        if not self.vpp_dead:
-            self.logger.info(self.vapi.ppcli("show l2patch"))
+
+    def show_commands_at_teardown(self):
+        self.logger.info(self.vapi.ppcli("show l2patch"))
 
     @classmethod
     def create_host_lists(cls, count):

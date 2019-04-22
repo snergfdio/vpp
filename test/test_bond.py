@@ -31,13 +31,18 @@ class TestBondInterface(VppTestCase):
         for i in cls.pg_interfaces:
             i.admin_up()
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestBondInterface, cls).tearDownClass()
+
     def setUp(self):
         super(TestBondInterface, self).setUp()
 
     def tearDown(self):
         super(TestBondInterface, self).tearDown()
-        if not self.vpp_dead:
-            self.logger.info(self.vapi.ppcli("show interface"))
+
+    def show_commands_at_teardown(self):
+        self.logger.info(self.vapi.ppcli("show interface"))
 
     def test_bond_traffic(self):
         """ Bond traffic test """

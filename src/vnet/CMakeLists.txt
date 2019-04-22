@@ -42,6 +42,7 @@ list(APPEND VNET_SOURCES
 list(APPEND VNET_MULTIARCH_SOURCES
   interface_output.c
   interface_stats.c
+  handoff.c
 )
 
 list(APPEND VNET_HEADERS
@@ -135,7 +136,10 @@ list(APPEND VNET_SOURCES
   ethernet/p2p_ethernet_api.c
 )
 
-list(APPEND VNET_MULTIARCH_SOURCES ethernet/node.c)
+list(APPEND VNET_MULTIARCH_SOURCES
+  ethernet/node.c
+  ethernet/p2p_ethernet_input.c
+)
 
 list(APPEND VNET_HEADERS
   ethernet/error.def
@@ -157,6 +161,7 @@ list(APPEND VNET_SOURCES
   l2/l2_api.c
   l2/l2_bd.c
   l2/l2_bvi.c
+  l2/l2_bvi_node.c
   l2/l2_input_classify.c
   l2/l2_output_classify.c
   l2/l2_efp_filter.c
@@ -177,10 +182,22 @@ list(APPEND VNET_SOURCES
 )
 
 list(APPEND VNET_MULTIARCH_SOURCES
+  l2/l2_bvi_node.c
   l2/l2_fwd.c
   l2/l2_learn.c
   l2/l2_output.c
   l2/l2_patch.c
+  l2/l2_in_out_feat_arc.c
+  l2/l2_input_classify.c
+  l2/l2_input.c
+  l2/l2_output_classify.c
+  l2/l2_flood.c
+  l2/l2_uu_fwd.c
+  l2/l2_efp_filter.c
+  l2/l2_rw.c
+  l2/l2_xcrw.c
+  l2/l2_in_out_acl.c
+  l2/l2_input_vtr.c
 )
 
 list(APPEND VNET_HEADERS
@@ -430,6 +447,18 @@ list(APPEND VNET_SOURCES
   ip/punt.c
 )
 
+list(APPEND VNET_MULTIARCH_SOURCES
+  ip/ip4_source_check.c
+  ip/ip4_punt_drop.c
+  ip/ip4_reassembly.c
+  ip/ip6_hop_by_hop.c
+  ip/ip6_reassembly.c
+  ip/ip6_input.c
+  ip/ip6_punt_drop.c
+  ip/punt.c
+  ip/ip_in_out_acl.c
+)
+
 list(APPEND VNET_HEADERS
   ip/format.h
   ip/icmp46_packet.h
@@ -504,6 +533,20 @@ list(APPEND VNET_SOURCES
 list(APPEND VNET_API_FILES bfd/bfd.api)
 
 ##############################################################################
+# Crypto
+##############################################################################
+
+list(APPEND VNET_SOURCES
+  crypto/cli.c
+  crypto/crypto.c
+  crypto/format.c
+)
+
+list(APPEND VNET_HEADERS
+  crypto/crypto.h
+)
+
+##############################################################################
 # Layer 3 protocol: IPSec
 ##############################################################################
 list(APPEND VNET_SOURCES
@@ -513,6 +556,7 @@ list(APPEND VNET_SOURCES
   ipsec/ipsec_input.c
   ipsec/ipsec_if.c
   ipsec/ipsec_if_in.c
+  ipsec/ipsec_punt.c
   ipsec/ipsec_sa.c
   ipsec/ipsec_spd.c
   ipsec/ipsec_spd_policy.c
@@ -704,6 +748,11 @@ list(APPEND VNET_SOURCES
   l2tp/l2tp_api.c
 )
 
+list(APPEND VNET_MULTIARCH_SOURCES
+  l2tp/encap.c
+  l2tp/decap.c
+)
+
 list(APPEND VNET_HEADERS
   l2tp/l2tp.h
   l2tp/packet.h
@@ -800,6 +849,11 @@ list(APPEND VNET_SOURCES
   ipsec-gre/ipsec_gre_api.c
 )
 
+list(APPEND VNET_MULTIARCH_SOURCES
+  ipsec-gre/node.c
+  ipsec-gre/ipsec_gre.c
+)
+
 list(APPEND VNET_HEADERS
   ipsec-gre/ipsec_gre.h
   ipsec-gre/error.def
@@ -874,6 +928,10 @@ list(APPEND VNET_SOURCES
   dhcp/dhcp6_ia_na_client_dp.c
   dhcp/dhcp6_ia_na_client_cp.c
   dhcp/dhcp_api.c
+)
+
+list(APPEND VNET_MULTIARCH_SOURCES
+  dhcp/dhcp_client_detect.c
 )
 
 list(APPEND VNET_HEADERS
@@ -978,6 +1036,10 @@ list(APPEND VNET_SOURCES
   lawful-intercept/node.c
 )
 
+list(APPEND VNET_MULTIARCH_SOURCES
+  lawful-intercept/node.c
+)
+
 list(APPEND VNET_HEADERS
   lawful-intercept/lawful_intercept.h
 )
@@ -1070,6 +1132,7 @@ list(APPEND VNET_MULTIARCH_SOURCES
   devices/netmap/node.c
   devices/virtio/node.c
   devices/af_packet/node.c
+  devices/virtio/device.c
 )
 
 list(APPEND VNET_API_FILES
@@ -1192,6 +1255,11 @@ list(APPEND VNET_SOURCES
   devices/af_packet/af_packet_api.c
 )
 
+list(APPEND VNET_MULTIARCH_SOURCES
+  devices/netmap/device.c
+  devices/af_packet/device.c
+)
+
 list(APPEND VNET_HEADERS
   devices/af_packet/af_packet.h
 )
@@ -1304,6 +1372,7 @@ list(APPEND VNET_SOURCES
   adj/adj_nbr.c
   adj/adj_glean.c
   adj/adj_midchain.c
+  adj/adj_midchain_delegate.c
   adj/adj_mcast.c
   adj/adj_l2.c
   adj/adj_nsh.c
@@ -1516,6 +1585,12 @@ option(VPP_BUILD_SESSION_ECHO_APPS "Build session echo apps." ON)
 if(VPP_BUILD_SESSION_ECHO_APPS)
   add_vpp_executable(tcp_echo
     SOURCES ../tests/vnet/session/tcp_echo.c
+    LINK_LIBRARIES vlibmemoryclient svm vppinfra pthread m rt
+    DEPENDS api_headers
+    NO_INSTALL
+    )
+  add_vpp_executable(quic_echo
+    SOURCES ../tests/vnet/session/quic_echo.c
     LINK_LIBRARIES vlibmemoryclient svm vppinfra pthread m rt
     DEPENDS api_headers
     NO_INSTALL

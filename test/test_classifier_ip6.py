@@ -26,6 +26,10 @@ class TestClassifier(VppTestCase):
         super(TestClassifier, cls).setUpClass()
         cls.acl_active_table = ''
 
+    @classmethod
+    def tearDownClass(cls):
+        super(TestClassifier, cls).tearDownClass()
+
     def setUp(self):
         """
         Perform test setup before test case.
@@ -69,10 +73,6 @@ class TestClassifier(VppTestCase):
     def tearDown(self):
         """Run standard test teardown and acl related log."""
         if not self.vpp_dead:
-            self.logger.info(self.vapi.ppcli("show inacl type ip6"))
-            self.logger.info(self.vapi.ppcli("show outacl type ip6"))
-            self.logger.info(self.vapi.cli("show classify table verbose"))
-            self.logger.info(self.vapi.cli("show ip fib"))
             if self.acl_active_table == 'ip6_out':
                 self.output_acl_set_interface(
                     self.pg0, self.acl_tbl_idx.get(self.acl_active_table), 0)
@@ -86,6 +86,12 @@ class TestClassifier(VppTestCase):
                 intf.admin_down()
 
         super(TestClassifier, self).tearDown()
+
+    def show_commands_at_teardown(self):
+        self.logger.info(self.vapi.ppcli("show inacl type ip6"))
+        self.logger.info(self.vapi.ppcli("show outacl type ip6"))
+        self.logger.info(self.vapi.cli("show classify table verbose"))
+        self.logger.info(self.vapi.cli("show ip fib"))
 
     def create_stream(self, src_if, dst_if, packet_sizes,
                       proto_l=UDP(sport=1234, dport=5678)):
@@ -288,6 +294,14 @@ class TestClassifier(VppTestCase):
 class TestClassifierIP6(TestClassifier):
     """ Classifier IP6 Test Case """
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestClassifierIP6, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestClassifierIP6, cls).tearDownClass()
+
     def test_iacl_src_ip(self):
         """ Source IP6 iACL test
 
@@ -388,6 +402,14 @@ class TestClassifierIP6(TestClassifier):
 # ticket VPP-1336
 class TestClassifierIP6UDP(TestClassifier):
     """ Classifier IP6 UDP proto Test Case """
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestClassifierIP6UDP, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestClassifierIP6UDP, cls).tearDownClass()
 
     def test_iacl_proto_udp(self):
         """ IP6 UDP protocol iACL test
@@ -523,6 +545,14 @@ class TestClassifierIP6UDP(TestClassifier):
 
 class TestClassifierIP6TCP(TestClassifier):
     """ Classifier IP6 TCP proto Test Case """
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestClassifierIP6TCP, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestClassifierIP6TCP, cls).tearDownClass()
 
     def test_iacl_proto_tcp(self):
         """ IP6 TCP protocol iACL test
@@ -661,6 +691,14 @@ class TestClassifierIP6TCP(TestClassifier):
 class TestClassifierIP6Out(TestClassifier):
     """ Classifier output IP6 Test Case """
 
+    @classmethod
+    def setUpClass(cls):
+        super(TestClassifierIP6Out, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestClassifierIP6Out, cls).tearDownClass()
+
     def test_acl_ip_out(self):
         """ Output IP6 ACL test
 
@@ -697,6 +735,14 @@ class TestClassifierIP6Out(TestClassifier):
 
 class TestClassifierIP6MAC(TestClassifier):
     """ Classifier IP6 MAC Test Case """
+
+    @classmethod
+    def setUpClass(cls):
+        super(TestClassifierIP6MAC, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TestClassifierIP6MAC, cls).tearDownClass()
 
     def test_acl_mac(self):
         """ IP6 MAC iACL test

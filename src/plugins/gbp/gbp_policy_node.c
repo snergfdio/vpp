@@ -17,30 +17,30 @@
 #include <plugins/gbp/gbp_policy_dpo.h>
 
 #include <vnet/vxlan-gbp/vxlan_gbp_packet.h>
+#include <vnet/vxlan-gbp/vxlan_gbp.h>
 
 #define foreach_gbp_policy                      \
-  _(DENY,    "deny")
+  _(DENY,    "deny")                            \
+  _(REFLECTION, "reflection")
 
 typedef enum
 {
-#define _(sym,str) GBP_ERROR_##sym,
-  foreach_gbp_policy
+#define _(sym,str) GBP_POLICY_ERROR_##sym,
+  foreach_gbp_policy_error
 #undef _
     GBP_POLICY_N_ERROR,
 } gbp_policy_error_t;
 
 static char *gbp_policy_error_strings[] = {
 #define _(sym,string) string,
-  foreach_gbp_policy
+  foreach_gbp_policy_error
 #undef _
 };
 
 typedef enum
 {
-#define _(sym,str) GBP_POLICY_NEXT_##sym,
-  foreach_gbp_policy
-#undef _
-    GBP_POLICY_N_NEXT,
+  GBP_POLICY_NEXT_DROP,
+  GBP_POLICY_N_NEXT,
 } gbp_policy_next_t;
 
 /**
@@ -53,6 +53,7 @@ typedef struct gbp_policy_trace_t_
   u32 dst_epg;
   u32 acl_index;
   u32 allowed;
+  u32 flags;
 } gbp_policy_trace_t;
 
 always_inline dpo_proto_t
@@ -114,11 +115,14 @@ gbp_policy_inline (vlib_main_t * vm,
   gbp_main_t *gm = &gbp_main;
   gbp_policy_main_t *gpm = &gbp_policy_main;
   u32 n_left_from, *from, *to_next;
-  u32 next_index;
+  u32 next_index, thread_index;
+  u32 n_allow_intra, n_allow_a_bit, n_allow_sclass_1;
 
   next_index = 0;
   n_left_from = frame->n_vectors;
   from = vlib_frame_vector_args (frame);
+  thread_index = vm->thread_index;
+  n_allow_intra = n_allow_a_bit = n_allow_sclass_1 = 0;
 
   while (n_left_from > 0)
     {
@@ -138,7 +142,7 @@ gbp_policy_inline (vlib_main_t * vm,
 	  index_t gci0;
 
 	  gc0 = NULL;
-	  next0 = GBP_POLICY_NEXT_DENY;
+	  next0 = GBP_POLICY_NEXT_DROP;
 	  bi0 = from[0];
 	  to_next[0] = bi0;
 	  from += 1;
@@ -151,7 +155,16 @@ gbp_policy_inline (vlib_main_t * vm,
 	  sw_if_index0 = vnet_buffer (b0)->sw_if_index[VLIB_TX];
 
 	  /*
-	   * If the A0bit is set then policy has already been applied
+	   * Reflection check; in and out on an ivxlan tunnel
+	   */
+	  if ((~0 != vxlan_gbp_tunnel_by_sw_if_index (sw_if_index0)) &&
+	      (vnet_buffer2 (b0)->gbp.flags & VXLAN_GBP_GPFLAGS_R))
+	    {
+	      goto trace;
+	    }
+
+	  /*
+	   * If the A-bit is set then policy has already been applied
 	   * and we skip enforcement here.
 	   */
 	  if (vnet_buffer2 (b0)->gbp.flags & VXLAN_GBP_GPFLAGS_A)
@@ -162,9 +175,11 @@ gbp_policy_inline (vlib_main_t * vm,
 					    (is_port_based ?
 					     L2OUTPUT_FEAT_GBP_POLICY_PORT :
 					     L2OUTPUT_FEAT_GBP_POLICY_MAC));
+	      n_allow_a_bit++;
 	      key0.as_u32 = ~0;
 	      goto trace;
 	    }
+
 	  /*
 	   * determine the src and dst EPG
 	   */
@@ -177,9 +192,11 @@ gbp_policy_inline (vlib_main_t * vm,
 	  if (NULL != ge0)
 	    key0.gck_dst = ge0->ge_fwd.gef_sclass;
 	  else
-	    /* If you cannot determine the destination EP then drop */
-	    goto trace;
-
+	    {
+	      /* If you cannot determine the destination EP then drop */
+	      b0->error = node->errors[GBP_POLICY_ERROR_DROP_NO_DCLASS];
+	      goto trace;
+	    }
 	  key0.gck_src = vnet_buffer2 (b0)->gbp.sclass;
 
 	  if (SCLASS_INVALID != key0.gck_src)
@@ -197,6 +214,22 @@ gbp_policy_inline (vlib_main_t * vm,
 					   L2OUTPUT_FEAT_GBP_POLICY_PORT :
 					   L2OUTPUT_FEAT_GBP_POLICY_MAC));
 		  vnet_buffer2 (b0)->gbp.flags |= VXLAN_GBP_GPFLAGS_A;
+		  n_allow_intra++;
+		}
+	      else if (PREDICT_FALSE (key0.gck_src == 1 || key0.gck_dst == 1))
+		{
+		  /*
+		   * sclass or dclass 1 allowed
+		   */
+		  next0 =
+		    vnet_l2_feature_next (b0,
+					  gpm->l2_output_feat_next
+					  [is_port_based],
+					  (is_port_based ?
+					   L2OUTPUT_FEAT_GBP_POLICY_PORT :
+					   L2OUTPUT_FEAT_GBP_POLICY_MAC));
+		  vnet_buffer2 (b0)->gbp.flags |= VXLAN_GBP_GPFLAGS_A;
+		  n_allow_sclass_1++;
 		}
 	      else
 		{
@@ -212,6 +245,11 @@ gbp_policy_inline (vlib_main_t * vm,
 		      u16 ether_type0;
 		      const u8 *h0;
 
+		      vlib_prefetch_combined_counter
+			(&gbp_contract_drop_counters, thread_index, gci0);
+		      vlib_prefetch_combined_counter
+			(&gbp_contract_permit_counters, thread_index, gci0);
+
 		      action0 = 0;
 		      gc0 = gbp_contract_get (gci0);
 		      l2_len0 = vnet_buffer (b0)->l2.l2_len;
@@ -224,6 +262,14 @@ gbp_policy_inline (vlib_main_t * vm,
 			  /*
 			   * black list model so drop
 			   */
+			  b0->error =
+			    node->errors[GBP_POLICY_ERROR_DROP_ETHER_TYPE];
+
+			  vlib_increment_combined_counter
+			    (&gbp_contract_drop_counters,
+			     thread_index,
+			     gci0, 1, vlib_buffer_length_in_chain (vm, b0));
+
 			  goto trace;
 			}
 
@@ -275,7 +321,7 @@ gbp_policy_inline (vlib_main_t * vm,
 				      L2OUTPUT_FEAT_GBP_POLICY_MAC));
 				  break;
 				case GBP_RULE_DENY:
-				  next0 = 0;
+				  next0 = GBP_POLICY_NEXT_DROP;
 				  break;
 				case GBP_RULE_REDIRECT:
 				  next0 = gbp_rule_l2_redirect (gu, b0);
@@ -283,6 +329,27 @@ gbp_policy_inline (vlib_main_t * vm,
 				}
 			    }
 			}
+		      if (next0 == GBP_POLICY_NEXT_DROP)
+			{
+			  vlib_increment_combined_counter
+			    (&gbp_contract_drop_counters,
+			     thread_index,
+			     gci0, 1, vlib_buffer_length_in_chain (vm, b0));
+			  b0->error =
+			    node->errors[GBP_POLICY_ERROR_DROP_CONTRACT];
+			}
+		      else
+			{
+			  vlib_increment_combined_counter
+			    (&gbp_contract_permit_counters,
+			     thread_index,
+			     gci0, 1, vlib_buffer_length_in_chain (vm, b0));
+			}
+		    }
+		  else
+		    {
+		      b0->error =
+			node->errors[GBP_POLICY_ERROR_DROP_NO_CONTRACT];
 		    }
 		}
 	    }
@@ -307,8 +374,9 @@ gbp_policy_inline (vlib_main_t * vm,
 		vlib_add_trace (vm, node, b0, sizeof (*t));
 	      t->sclass = key0.gck_src;
 	      t->dst_epg = key0.gck_dst;
-	      t->acl_index = (gc0 ? gc0->gc_acl_index : ~0),
-		t->allowed = (next0 != GBP_POLICY_NEXT_DENY);
+	      t->acl_index = (gc0 ? gc0->gc_acl_index : ~0);
+	      t->allowed = (next0 != GBP_POLICY_NEXT_DROP);
+	      t->flags = vnet_buffer2 (b0)->gbp.flags;
 	    }
 
 	  /* verify speculative enqueue, maybe switch current next frame */
@@ -319,6 +387,14 @@ gbp_policy_inline (vlib_main_t * vm,
 
       vlib_put_next_frame (vm, node, next_index, n_left_to_next);
     }
+
+  vlib_node_increment_counter (vm, node->node_index,
+			       GBP_POLICY_ERROR_ALLOW_INTRA, n_allow_intra);
+  vlib_node_increment_counter (vm, node->node_index,
+			       GBP_POLICY_ERROR_ALLOW_A_BIT, n_allow_a_bit);
+  vlib_node_increment_counter (vm, node->node_index,
+			       GBP_POLICY_ERROR_ALLOW_SCLASS_1,
+			       n_allow_sclass_1);
 
   return frame->n_vectors;
 }
@@ -346,8 +422,9 @@ format_gbp_policy_trace (u8 * s, va_list * args)
   gbp_policy_trace_t *t = va_arg (*args, gbp_policy_trace_t *);
 
   s =
-    format (s, "sclass:%d, dst:%d, acl:%d allowed:%d",
-	    t->sclass, t->dst_epg, t->acl_index, t->allowed);
+    format (s, "sclass:%d, dst:%d, acl:%d allowed:%d flags:%U",
+	    t->sclass, t->dst_epg, t->acl_index, t->allowed,
+	    format_vxlan_gbp_header_gpflags, t->flags);
 
   return s;
 }
@@ -363,9 +440,8 @@ VLIB_REGISTER_NODE (gbp_policy_port_node) = {
   .error_strings = gbp_policy_error_strings,
 
   .n_next_nodes = GBP_POLICY_N_NEXT,
-
   .next_nodes = {
-    [GBP_POLICY_NEXT_DENY] = "error-drop",
+    [GBP_POLICY_NEXT_DROP] = "error-drop",
   },
 };
 
@@ -374,7 +450,14 @@ VLIB_REGISTER_NODE (gbp_policy_mac_node) = {
   .vector_size = sizeof (u32),
   .format_trace = format_gbp_policy_trace,
   .type = VLIB_NODE_TYPE_INTERNAL,
-  .sibling_of = "gbp-policy-port",
+
+  .n_errors = ARRAY_LEN(gbp_policy_error_strings),
+  .error_strings = gbp_policy_error_strings,
+
+  .n_next_nodes = GBP_POLICY_N_NEXT,
+  .next_nodes = {
+    [GBP_POLICY_NEXT_DROP] = "error-drop",
+  },
 };
 
 /* *INDENT-ON* */

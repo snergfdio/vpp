@@ -11,6 +11,13 @@ class TesVhostInterface(VppTestCase):
     """Vhost User Test Case
 
     """
+    @classmethod
+    def setUpClass(cls):
+        super(TesVhostInterface, cls).setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        super(TesVhostInterface, cls).tearDownClass()
 
     def tearDown(self):
         super(TesVhostInterface, self).tearDown()
@@ -92,8 +99,8 @@ class TesVhostInterface(VppTestCase):
         vhost_if.add_vpp_config()
         self.sleep(0.1)
         events = self.vapi.collect_events()
-        # creating interface doesn't currently create events
-        self.assert_equal(len(events), 0, "number of events")
+        # creating interface does now create events
+        self.assert_equal(len(events), 1, "number of events")
 
         vhost_if.admin_up()
         vhost_if.assert_interface_state(1, 0, expect_event=True)

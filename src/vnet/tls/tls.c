@@ -26,7 +26,7 @@ static tls_engine_vft_t *tls_vfts;
 
 void tls_disconnect (u32 ctx_handle, u32 thread_index);
 
-static void
+void
 tls_disconnect_transport (tls_ctx_t * ctx)
 {
   vnet_disconnect_args_t a = {
@@ -287,13 +287,6 @@ tls_ctx_alloc (tls_engine_type_t engine_type)
   return (((u32) engine_type << TLS_ENGINE_TYPE_SHIFT) | ctx_index);
 }
 
-static inline void
-tls_ctx_free (tls_ctx_t * ctx)
-{
-  vec_free (ctx->srv_hostname);
-  tls_vfts[ctx->tls_ctx_engine].ctx_free (ctx);
-}
-
 static inline tls_ctx_t *
 tls_ctx_get (u32 ctx_handle)
 {
@@ -334,7 +327,26 @@ tls_ctx_read (tls_ctx_t * ctx, session_t * tls_session)
   return tls_vfts[ctx->tls_ctx_engine].ctx_read (ctx, tls_session);
 }
 
-static inline u8
+static inline int
+tls_ctx_transport_close (tls_ctx_t * ctx)
+{
+  return tls_vfts[ctx->tls_ctx_engine].ctx_transport_close (ctx);
+}
+
+static inline int
+tls_ctx_app_close (tls_ctx_t * ctx)
+{
+  return tls_vfts[ctx->tls_ctx_engine].ctx_app_close (ctx);
+}
+
+void
+tls_ctx_free (tls_ctx_t * ctx)
+{
+  vec_free (ctx->srv_hostname);
+  tls_vfts[ctx->tls_ctx_engine].ctx_free (ctx);
+}
+
+u8
 tls_ctx_handshake_is_over (tls_ctx_t * ctx)
 {
   return tls_vfts[ctx->tls_ctx_engine].ctx_handshake_is_over (ctx);
@@ -368,13 +380,8 @@ tls_session_disconnect_callback (session_t * tls_session)
 	   tls_session->session_index);
 
   ctx = tls_ctx_get (tls_session->opaque);
-  if (!tls_ctx_handshake_is_over (ctx))
-    {
-      session_close (tls_session);
-      return;
-    }
   ctx->is_passive_close = 1;
-  session_transport_closing_notify (&ctx->connection);
+  tls_ctx_transport_close (ctx);
 }
 
 int
@@ -431,19 +438,15 @@ tls_session_connected_callback (u32 tls_app_index, u32 ho_ctx_index,
 
   if (is_fail)
     {
-      int (*cb_fn) (u32, u32, session_t *, u8), rv = 0;
-      u32 wrk_index, api_context;
       app_worker_t *app_wrk;
-      application_t *app;
+      u32 api_context;
+      int rv = 0;
 
-      wrk_index = ho_ctx->parent_app_wrk_index;
       app_wrk = app_worker_get_if_valid (ho_ctx->parent_app_wrk_index);
       if (app_wrk)
 	{
 	  api_context = ho_ctx->c_s_index;
-	  app = application_get (app_wrk->app_index);
-	  cb_fn = app->cb_fns.session_connected_callback;
-	  rv = cb_fn (wrk_index, api_context, 0, 1 /* failed */ );
+	  app_worker_connect_notify (app_wrk, 0, api_context);
 	}
       tls_ctx_half_open_reader_unlock ();
       tls_ctx_half_open_free (ho_ctx_index);
@@ -546,9 +549,7 @@ tls_disconnect (u32 ctx_handle, u32 thread_index)
   TLS_DBG (1, "Disconnecting %x", ctx_handle);
 
   ctx = tls_ctx_get (ctx_handle);
-  tls_disconnect_transport (ctx);
-  session_transport_delete_notify (&ctx->connection);
-  tls_ctx_free (ctx);
+  tls_ctx_app_close (ctx);
 }
 
 u32
@@ -757,14 +758,15 @@ tls_register_engine (const tls_engine_vft_t * vft, tls_engine_type_t type)
 static clib_error_t *
 tls_init (vlib_main_t * vm)
 {
+  u32 add_segment_size = (4096ULL << 20) - 1, first_seg_size = 32 << 20;
   vlib_thread_main_t *vtm = vlib_get_thread_main ();
+  u32 num_threads, fifo_size = 128 << 10;
   vnet_app_attach_args_t _a, *a = &_a;
   u64 options[APP_OPTIONS_N_OPTIONS];
-  u32 segment_size = 2048 << 20;
   tls_main_t *tm = &tls_main;
-  u32 fifo_size = 128 << 10;
-  u32 num_threads;
 
+  first_seg_size = tm->first_seg_size ? tm->first_seg_size : first_seg_size;
+  fifo_size = tm->fifo_size ? tm->fifo_size : fifo_size;
   num_threads = 1 /* main thread */  + vtm->n_threads;
 
   clib_memset (a, 0, sizeof (*a));
@@ -774,8 +776,8 @@ tls_init (vlib_main_t * vm)
   a->api_client_index = APP_INVALID_INDEX;
   a->options = options;
   a->name = format (0, "tls");
-  a->options[APP_OPTIONS_SEGMENT_SIZE] = segment_size;
-  a->options[APP_OPTIONS_ADD_SEGMENT_SIZE] = segment_size;
+  a->options[APP_OPTIONS_SEGMENT_SIZE] = first_seg_size;
+  a->options[APP_OPTIONS_ADD_SEGMENT_SIZE] = add_segment_size;
   a->options[APP_OPTIONS_RX_FIFO_SIZE] = fifo_size;
   a->options[APP_OPTIONS_TX_FIFO_SIZE] = fifo_size;
   a->options[APP_OPTIONS_FLAGS] = APP_OPTIONS_FLAGS_IS_BUILTIN;
@@ -816,6 +818,12 @@ tls_config_fn (vlib_main_t * vm, unformat_input_t * input)
       if (unformat (input, "use-test-cert-in-ca"))
 	tm->use_test_cert_in_ca = 1;
       else if (unformat (input, "ca-cert-path %s", &tm->ca_cert_path))
+	;
+      else if (unformat (input, "first-segment-size %U", unformat_memory_size,
+			 &tm->first_seg_size))
+	;
+      else if (unformat (input, "fifo-size %U", unformat_memory_size,
+			 &tm->fifo_size))
 	;
       else
 	return clib_error_return (0, "unknown input `%U'",

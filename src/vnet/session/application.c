@@ -821,11 +821,11 @@ app_name_from_api_index (u32 api_client_index)
   vl_api_registration_t *regp;
   regp = vl_api_client_index_to_registration (api_client_index);
   if (regp)
-    return format (0, "%s%c", regp->name, 0);
+    return format (0, "%s", regp->name);
 
   clib_warning ("api client index %u does not have an api registration!",
 		api_client_index);
-  return format (0, "unknown%c", 0);
+  return format (0, "unknown");
 }
 
 /**
@@ -1207,7 +1207,7 @@ application_start_stop_proxy_fib_proto (application_t * app, u8 fib_proto,
 
 	  app_worker_start_listen (app_wrk, al);
 	  s = listen_session_get (al->session_index);
-	  s->enqueue_epoch = SESSION_PROXY_LISTENER_INDEX;
+	  s->flags |= SESSION_F_PROXY;
 	}
     }
   else
@@ -1421,12 +1421,12 @@ format_application (u8 * s, va_list * args)
   props = application_segment_manager_properties (app);
   if (!verbose)
     {
-      s = format (s, "%-10u%-20s%-40s", app->app_index, app_name,
+      s = format (s, "%-10u%-20v%-40s", app->app_index, app_name,
 		  app_ns_name);
       return s;
     }
 
-  s = format (s, "app-name %s app-index %u ns-index %u seg-size %U\n",
+  s = format (s, "app-name %v app-index %u ns-index %u seg-size %U\n",
 	      app_name, app->app_index, app->ns_index,
 	      format_memory_size, props->add_segment_size);
   s = format (s, "rx-fifo-size %U tx-fifo-size %U workers:\n",
