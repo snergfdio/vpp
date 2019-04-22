@@ -7,7 +7,7 @@ jobs:
       - run:
           command: |
             sudo apt-get update -qq
-            sudo apt-get install moreutils
+            sudo apt-get install moreutils -y
       - run:
           name: Cache Prep
           command: |
