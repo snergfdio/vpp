@@ -11,7 +11,7 @@ jobs:
       - run:
           name: Cache Prep
           command: |
-            sudo mkdir -p ~/vpp/build-root/.ccache
+            sudo mkdir -p /var/ccache
             #sudo chown -R circleci:circleci ~/vpp/build-root/.ccache
       - restore_cache:
           keys:
@@ -23,7 +23,6 @@ jobs:
       - run:
           name: ccache setup
           command: |
-            export CCACHE_DIR=~/vpp/build-root/.ccache
             ccache --version
             ccache --show-stats
             ccache --zero-stats
@@ -34,13 +33,13 @@ jobs:
       - run:
           name: ccache stats
           command: |
-            export CCACHE_DIR=~/vpp/build-root/.ccache
+            export CCACHE_DIR=/var/ccache
             ccache --show-stats
       - save_cache:
 #          key: ccache-v1-{{.BRANCH}}-{{epoch}}
           key: ccache-v1-master-{{epoch}}
           paths:
-            - ~/vpp/build-root/.ccache
+            - /var/ccache
   centos7:
     docker:
       - image: snergster/vpp-centos
