@@ -4,16 +4,48 @@ jobs:
     docker:
       - image: snergster/vpp-ubuntu16
     steps:
+      - run:
+          command: |
+            sudo apt-get update -qq
+            sudo apt-get install moreutils
+      - run:
+          name: Cache Prep
+          command: |
+            sudo mkdir -p ~/vpp/build-root/.ccache
+            #sudo chown -R circleci:circleci ~/vpp/build-root/.ccache
+      - restore_cache:
+          keys:
+            - ccache-{{ arch }}-{{.Environment.CIRCLE_JOB}}-{{epoch}}
+            - ccache-{{ arch }}-{{epoch}}
+            - ccache-{{ arch }}
+            - ccache-
+      - run:
+          name: ccache setup
+          command: |
+            export CCACHE_DIR=~/vpp/build-root/.ccache
+            ccache --version
+            ccache --show-stats
+            ccache --zero-stats
+            ccache --max-size=2G
       - checkout
       - run: make UNATTENDED=yes verify
+      - run:
+            name: ccache stats
+            command: |
+              export CCACHE_DIR=~/vpp/build-root/.ccache
+              ccache --show-stats
+        - save_cache:
+            key: ccache-{{ arch }}-{{.Environment.CIRCLE_JOB}}-{{epoch}}
+            paths:
+              - ~/vpp/build-root/.ccache
   centos7:
     docker:
       - image: snergster/vpp-centos
-    steps:
       - checkout
       - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.rpm.sh | sudo bash
       - run: yum -y install vpp-ext-deps || true
       - run: make UNATTENDED=yes verify
+
   ubuntu18:
     docker:
       - image: snergster/vpp-ubuntu18
@@ -21,17 +53,10 @@ jobs:
       - checkout
       - run: make UNATTENDED=yes install-dep
       - run: make pkg-deb
-  opensuse15:
-    docker:
-      - image: snergster/vpp-opensuse15
-    steps:
-      - checkout
-      - run: make UNATTENDED=yes verify
 workflows:
   version: 2
   build_and_test:
     jobs:
       - ubuntu16
-      - centos7
-      - ubuntu18
-      - opensuse15
+#      - centos7
+#      - ubuntu18
