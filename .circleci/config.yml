@@ -29,6 +29,7 @@ jobs:
             ccache --max-size=2G
       - checkout
       - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.deb.sh | sudo bash
+      - run: unset CCACHE_READONLY
       - run: make UNATTENDED=yes verify
       - run:
           name: ccache stats
