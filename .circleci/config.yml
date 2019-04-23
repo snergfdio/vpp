@@ -30,13 +30,13 @@ jobs:
       - checkout
       - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.deb.sh | sudo bash
       - run: 
-        name: ccache check
-        command: |
-        printenv
-        unset CCACHE_READONLY
-        whoami
-        printenv
-        make UNATTENDED=yes verify
+          name: ccache check
+          command: |
+            printenv
+            unset CCACHE_READONLY
+            whoami
+            printenv
+            make UNATTENDED=yes verify
       - run:
           name: ccache stats
           command: |
