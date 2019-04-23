@@ -36,7 +36,7 @@ jobs:
             unset CCACHE_READONLY
             whoami
             printenv
-            make UNATTENDED=yes verify
+            export CCACHE_READONLY=false;make UNATTENDED=yes verify
       - run:
           name: ccache stats
           command: |
