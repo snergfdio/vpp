@@ -24,6 +24,7 @@ jobs:
             ccache --max-size=2G
       - checkout
       - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.deb.sh | sudo bash
+      - run: apt-get update -qq && sudo apt-get -y --force-yes install vpp-ext-deps
       - run: 
           name: ccache check
           command: |
@@ -98,6 +99,8 @@ jobs:
             unset CCACHE_READONLY
             whoami
             printenv
+      - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.deb.sh | sudo bash
+      - run: apt-get update -qq && sudo apt-get -y --force-yes install vpp-ext-deps
       - run: 
           name: installdep
           command: |
