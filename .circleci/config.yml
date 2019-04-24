@@ -12,14 +12,9 @@ jobs:
           name: Cache Prep
           command: |
             sudo mkdir -p /var/ccache
-            #sudo chown -R circleci:circleci ~/vpp/build-root/.ccache
       - restore_cache:
           keys:
-            #- ccache-v1-{{ .BRANCH }}-{{epoch}}
-            - ccache-v1-master-{{epoch}}
-            - ccache-v1-{{epoch}}
-            - ccache-v1
-            - ccache-
+            - ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .BRANCH }}
       - run:
           name: ccache setup
           command: |
@@ -43,26 +38,82 @@ jobs:
             export CCACHE_DIR=/var/ccache
             ccache --show-stats
       - save_cache:
-#          key: ccache-v1-{{.BRANCH}}-{{epoch}}
-          key: ccache-v1-master-{{epoch}}
+          key: ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .BRANCH }}
           paths:
             - /var/ccache
   centos7:
     docker:
       - image: snergster/vpp-centos
+      - restore_cache:
+          keys:
+            - ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .BRANCH }}
+      - run:
+          name: ccache setup
+          command: |
+            ccache --version
+            ccache --show-stats
+            ccache --zero-stats
+            ccache --max-size=2G
+      - checkout
     steps:
       - checkout
       - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.rpm.sh | sudo bash
       - run: yum -y install vpp-ext-deps || true
-      - run: make UNATTENDED=yes verify
+      - run:
+          name: verify with cache
+          command: |
+            printenv
+            unset CCACHE_READONLY
+            whoami
+            printenv
+            export CCACHE_READONLY=false;make UNATTENDED=yes verify
+      - run:
+          name: ccache stats
+          command: |
+            export CCACHE_DIR=/var/ccache
+            ccache --show-stats
+      - save_cache:
+          key: ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .BRANCH }}
+          paths:
+            - /var/ccache
 
   ubuntu18:
     docker:
       - image: snergster/vpp-ubuntu18
     steps:
+      - restore_cache:
+          keys:
+            - ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .BRANCH }}
+      - run:
+          name: ccache setup
+          command: |
+            ccache --version
+            ccache --show-stats
+            ccache --zero-stats
+            ccache --max-size=2G
       - checkout
-      - run: make UNATTENDED=yes install-dep
-      - run: make pkg-deb
+      - run:
+          name: printenv
+          command: |
+            printenv
+            unset CCACHE_READONLY
+            whoami
+            printenv
+      - run: 
+          name: installdep
+          command: |
+            make UNATTENDED=yes install-dep
+      - run: export CCACHE_READONLY=false;make pkg-deb
+      - run:
+          name: ccache stats
+          command: |
+            export CCACHE_DIR=/var/ccache
+            ccache --show-stats
+      - save_cache:
+          key: ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .BRANCH }}
+          paths:
+            - /var/ccache
+
 workflows:
   version: 2
   build_and_test:
