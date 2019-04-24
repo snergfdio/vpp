@@ -57,7 +57,7 @@ jobs:
             ccache --max-size=2G
       - checkout
       - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.rpm.sh | sudo bash
-      - run: yum -y install vpp-ext-deps || true
+      - run: yum -y install vpp-ext-deps moreutils;mkdir -p /usr/lib;ln -s /usr/lib64/ccache /usr/lib/ccache || true
       - run:
           name: verify with cache
           command: |
@@ -65,7 +65,7 @@ jobs:
             unset CCACHE_READONLY
             whoami
             printenv
-            export CCACHE_READONLY=false;make UNATTENDED=yes verify
+            unset CCACHE_READONLY;make UNATTENDED=yes verify
       - run:
           name: ccache stats
           command: |
@@ -102,7 +102,7 @@ jobs:
           name: installdep
           command: |
             make UNATTENDED=yes install-dep
-      - run: export CCACHE_READONLY=false;make pkg-deb
+      - run: make pkg-deb
       - run:
           name: ccache stats
           command: |
