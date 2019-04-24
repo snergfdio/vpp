@@ -44,6 +44,7 @@ jobs:
   centos7:
     docker:
       - image: snergster/vpp-centos
+    steps:
       - restore_cache:
           keys:
             - ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .BRANCH }}
@@ -54,8 +55,6 @@ jobs:
             ccache --show-stats
             ccache --zero-stats
             ccache --max-size=2G
-      - checkout
-    steps:
       - checkout
       - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.rpm.sh | sudo bash
       - run: yum -y install vpp-ext-deps || true
