@@ -14,7 +14,7 @@ jobs:
             sudo mkdir -p /var/ccache
       - restore_cache:
           keys:
-            - ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+            - ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
       - run:
           name: ccache setup
           command: |
@@ -31,14 +31,14 @@ jobs:
             unset CCACHE_READONLY
             whoami
             printenv
-            export CCACHE_READONLY=false;make UNATTENDED=yes verify
+            unset CCACHE_READONLY;make UNATTENDED=yes verify
       - run:
           name: ccache stats
           command: |
             export CCACHE_DIR=/var/ccache
             ccache --show-stats
       - save_cache:
-          key: ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+          key: ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
           paths:
             - /var/ccache
   centos7:
@@ -47,7 +47,7 @@ jobs:
     steps:
       - restore_cache:
           keys:
-            - ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+            - ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
       - run:
           name: ccache setup
           command: |
@@ -57,7 +57,7 @@ jobs:
             ccache --max-size=2G
       - checkout
       - run: curl -s https://packagecloud.io/install/repositories/fdio/master/script.rpm.sh | sudo bash
-      - run: yum -y install vpp-ext-deps moreutils;mkdir -p /usr/lib;ln -s /usr/lib64/ccache /usr/lib/ccache || true
+      - run: yum update -y; yum -y install vpp-ext-deps moreutils;mkdir -p /usr/lib;ln -s /usr/lib64/ccache /usr/lib/ccache || true
       - run:
           name: verify with cache
           command: |
@@ -72,7 +72,7 @@ jobs:
             export CCACHE_DIR=/var/ccache
             ccache --show-stats
       - save_cache:
-          key: ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+          key: ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
           paths:
             - /var/ccache
 
@@ -82,7 +82,7 @@ jobs:
     steps:
       - restore_cache:
           keys:
-            - ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+            - ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
       - run:
           name: ccache setup
           command: |
@@ -109,7 +109,7 @@ jobs:
             export CCACHE_DIR=/var/ccache
             ccache --show-stats
       - save_cache:
-          key: ccache-v1-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+          key: ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
           paths:
             - /var/ccache
 
