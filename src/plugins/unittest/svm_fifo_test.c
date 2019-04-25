@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 #include <svm/svm_fifo.h>
+#include <svm/svm_fifo_segment.h>
 #include <vlib/vlib.h>
 
 #define SFIFO_TEST_I(_cond, _comment, _args...)			\
@@ -644,7 +645,7 @@ tcp_test_fifo3 (vlib_main_t * vm, unformat_input_t * input)
 
   /* manually set head and tail pointers to validate modular arithmetic */
   fifo_initial_offset = fifo_initial_offset % fifo_size;
-  svm_fifo_init_pointers (f, fifo_initial_offset);
+  svm_fifo_init_pointers (f, fifo_initial_offset, fifo_initial_offset);
 
   for (i = !randomize; i < vec_len (generate); i++)
     {
@@ -758,7 +759,7 @@ tcp_test_fifo4 (vlib_main_t * vm, unformat_input_t * input)
 
   /* Set head and tail pointers */
   fifo_initial_offset = fifo_initial_offset % fifo_size;
-  svm_fifo_init_pointers (f, fifo_initial_offset);
+  svm_fifo_init_pointers (f, fifo_initial_offset, fifo_initial_offset);
 
   vec_validate (test_data, test_n_bytes - 1);
   for (i = 0; i < vec_len (test_data); i++)
@@ -824,7 +825,7 @@ tcp_test_fifo5 (vlib_main_t * vm, unformat_input_t * input)
     }
 
   f = fifo_prepare (fifo_size);
-  svm_fifo_init_pointers (f, offset);
+  svm_fifo_init_pointers (f, offset, offset);
 
   vec_validate (test_data, 399);
   for (i = 0; i < vec_len (test_data); i++)
@@ -933,10 +934,11 @@ tcp_test_fifo5 (vlib_main_t * vm, unformat_input_t * input)
 static int
 tcp_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
 {
-  int __clib_unused verbose, fifo_size = 201, start_offset = 100, i;
+  int verbose = 0, fifo_size = 201, start_offset = 100, i, j, rv;
+  int test_n_bytes, deq_bytes, enq_bytes, n_deqs, n_enqs;
   svm_fifo_chunk_t *c, *next, *prev;
+  u8 *test_data = 0, *data_buf = 0;
   svm_fifo_t *f;
-  u8 *buf = 0;
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -951,7 +953,7 @@ tcp_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
     }
 
   f = fifo_prepare (fifo_size);
-  svm_fifo_init_pointers (f, start_offset);
+  svm_fifo_init_pointers (f, start_offset, start_offset);
 
   /*
    * Add with fifo not wrapped
@@ -972,7 +974,7 @@ tcp_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
    *  Add with fifo wrapped
    */
 
-  f->tail = f->head + f->nitems;
+  svm_fifo_init_pointers (f, f->nitems - 100, f->nitems + 100);
   c = clib_mem_alloc (sizeof (svm_fifo_chunk_t) + 100);
   c->length = 100;
   c->start_byte = ~0;
@@ -983,14 +985,14 @@ tcp_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
   SFIFO_TEST (f->end_chunk != c, "tail chunk should not be updated");
   SFIFO_TEST (f->size == fifo_size + 100, "size expected %u is %u",
 	      fifo_size + 100, f->size);
-  SFIFO_TEST (c->start_byte == ~0, "start byte expected %u is %u", ~0,
-	      c->start_byte);
+  SFIFO_TEST (c->start_byte == fifo_size + 100, "start byte expected %u is "
+	      " %u", fifo_size + 100, c->start_byte);
 
   /*
    * Unwrap fifo
    */
-  vec_validate (buf, 200);
-  svm_fifo_dequeue_nowait (f, 201, buf);
+  vec_validate (data_buf, 200);
+  svm_fifo_dequeue_nowait (f, 201, data_buf);
 
   SFIFO_TEST (f->end_chunk == c, "tail chunk should be updated");
   SFIFO_TEST (f->size == fifo_size + 200, "size expected %u is %u",
@@ -1001,9 +1003,7 @@ tcp_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
   /*
    * Add N chunks
    */
-
-  f->head = f->nitems - 100;
-  f->tail = f->head + f->nitems;
+  svm_fifo_init_pointers (f, f->nitems - 100, f->nitems + 100);
 
   prev = 0;
   for (i = 0; i < 5; i++)
@@ -1033,14 +1033,160 @@ tcp_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
   SFIFO_TEST (f->size == fifo_size + 200, "size expected %u is %u",
 	      fifo_size + 200, f->size);
 
-  svm_fifo_dequeue_nowait (f, 201, buf);
+  svm_fifo_dequeue_nowait (f, 201, data_buf);
 
   SFIFO_TEST (f->size == fifo_size + 200 + 10 * 100, "size expected %u is %u",
 	      fifo_size + 200 + 10 * 100, f->size);
+  /*
+   * Enqueue/dequeue tests
+   */
+
+  test_n_bytes = f->nitems;
+  vec_validate (test_data, test_n_bytes - 1);
+  vec_validate (data_buf, vec_len (test_data));
+  n_deqs = n_enqs = 6;
+  deq_bytes = enq_bytes = vec_len (test_data) / n_deqs;
+
+  for (i = 0; i < vec_len (test_data); i++)
+    test_data[i] = i;
+
+  /*
+   * Enqueue/deq boundary conditions
+   */
+  svm_fifo_init_pointers (f, 201, 201);
+  SFIFO_TEST (f->tail_chunk->start_byte == 201, "start byte expected %u is "
+	      "%u", 201, f->tail_chunk->start_byte);
+
+  svm_fifo_enqueue_nowait (f, 200, test_data);
+  SFIFO_TEST (f->tail_chunk->start_byte == 401, "start byte expected %u is "
+	      "%u", 401, f->tail_chunk->start_byte);
+
+  svm_fifo_dequeue_nowait (f, 200, data_buf);
+  SFIFO_TEST (f->head_chunk->start_byte == 401, "start byte expected %u is "
+	      "%u", 401, f->head_chunk->start_byte);
+
+  /*
+   * Simple enqueue/deq and data validation (1)
+   */
+  svm_fifo_init_pointers (f, f->nitems / 2, f->nitems / 2);
+  for (i = 0; i < test_n_bytes; i++)
+    {
+      rv = svm_fifo_enqueue_nowait (f, sizeof (u8), &test_data[i]);
+      if (rv < 0)
+	{
+	  clib_warning ("enqueue returned %d", rv);
+	  goto cleanup;
+	}
+    }
+
+  SFIFO_TEST (svm_fifo_max_dequeue (f) == test_n_bytes, "max deq expected %u "
+	      "is %u", test_n_bytes, svm_fifo_max_dequeue (f));
+
+  for (i = 0; i < test_n_bytes; i++)
+    svm_fifo_dequeue_nowait (f, 1, &data_buf[i]);
+
+  rv = compare_data (data_buf, test_data, 0, vec_len (test_data),
+		     (u32 *) & j);
+  if (rv)
+    vlib_cli_output (vm, "[%d] dequeued %u expected %u", j, data_buf[j],
+		     test_data[j]);
+  SFIFO_TEST ((rv == 0), "dequeued compared to original returned %d", rv);
+
+  /*
+   * Simple enqueue/deq and data validation (2)
+   */
+  for (i = 0; i <= n_enqs; i++)
+    {
+      rv = svm_fifo_enqueue_nowait (f, enq_bytes, test_data + i * enq_bytes);
+      if (rv < 0)
+	{
+	  clib_warning ("enqueue returned %d", rv);
+	  goto cleanup;
+	}
+    }
+
+  SFIFO_TEST (svm_fifo_max_dequeue (f) == test_n_bytes, "max deq expected %u "
+	      "is %u", test_n_bytes, svm_fifo_max_dequeue (f));
+
+  for (i = 0; i <= n_deqs; i++)
+    svm_fifo_dequeue_nowait (f, deq_bytes, data_buf + i * deq_bytes);
+
+  rv = compare_data (data_buf, test_data, 0, vec_len (test_data),
+		     (u32 *) & j);
+  if (rv)
+    vlib_cli_output (vm, "[%d] dequeued %u expected %u", j, data_buf[j],
+		     test_data[j]);
+  SFIFO_TEST ((rv == 0), "dequeued compared to original returned %d", rv);
+
+  /*
+   * OOO enqueues/dequeues and data validation (1)
+   */
+  for (i = test_n_bytes - 1; i > 0; i--)
+    {
+      rv = svm_fifo_enqueue_with_offset (f, i, sizeof (u8), &test_data[i]);
+      if (verbose)
+	vlib_cli_output (vm, "add [%d] [%d, %d]", i, i, i + sizeof (u8));
+      if (rv)
+	{
+	  clib_warning ("enqueue returned %d", rv);
+	  goto cleanup;
+	}
+    }
+
+  SFIFO_TEST (svm_fifo_max_dequeue (f) == 0, "max deq expected %u is %u",
+	      0, svm_fifo_max_dequeue (f));
+
+  svm_fifo_enqueue_nowait (f, sizeof (u8), &test_data[0]);
+
+  memset (data_buf, 0, vec_len (data_buf));
+  for (i = 0; i <= n_deqs; i++)
+    svm_fifo_dequeue_nowait (f, deq_bytes, data_buf + i * deq_bytes);
+
+  rv = compare_data (data_buf, test_data, 0, vec_len (test_data),
+		     (u32 *) & j);
+  if (rv)
+    vlib_cli_output (vm, "[%d] dequeued %u expected %u", j, data_buf[j],
+		     test_data[j]);
+  SFIFO_TEST ((rv == 0), "dequeued compared to original returned %d", rv);
+
+  /*
+   * OOO enqueues/dequeues and data validation (2)
+   */
+
+  for (i = n_enqs; i > 0; i--)
+    {
+      u32 enq_now = clib_min (enq_bytes, vec_len (test_data) - i * enq_bytes);
+      rv = svm_fifo_enqueue_with_offset (f, i * enq_bytes, enq_now,
+					 test_data + i * enq_bytes);
+      if (verbose)
+	vlib_cli_output (vm, "add [%d, %d]", i * enq_bytes,
+			 i * enq_bytes + enq_now);
+      if (rv)
+	{
+	  clib_warning ("enqueue returned %d", rv);
+	  goto cleanup;
+	}
+    }
+
+  svm_fifo_enqueue_nowait (f, enq_bytes, &test_data[0]);
+
+  memset (data_buf, 0, vec_len (data_buf));
+  for (i = 0; i <= n_deqs; i++)
+    svm_fifo_dequeue_nowait (f, deq_bytes, data_buf + i * deq_bytes);
+
+  rv = compare_data (data_buf, test_data, 0, vec_len (test_data),
+		     (u32 *) & j);
+  if (rv)
+    vlib_cli_output (vm, "[%d] dequeued %u expected %u", j, data_buf[j],
+		     test_data[j]);
+  SFIFO_TEST ((rv == 0), "dequeued compared to original returned %d", rv);
 
   /*
    * Cleanup
    */
+
+cleanup:
+
   c = f->start_chunk->next;
   while (c && c != f->start_chunk)
     {
@@ -1051,7 +1197,7 @@ tcp_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
 
   svm_fifo_free (f);
 
-  vec_free (buf);
+  vec_free (data_buf);
   return 0;
 }
 
@@ -1090,6 +1236,269 @@ tcp_test_fifo_replay (vlib_main_t * vm, unformat_input_t * input)
   return 0;
 }
 
+static svm_fifo_segment_main_t segment_main;
+
+static int
+tcp_test_fifo_segment_hello_world (int verbose)
+{
+  svm_fifo_segment_create_args_t _a, *a = &_a;
+  svm_fifo_segment_main_t *sm = &segment_main;
+  u8 *test_data, *retrieved_data = 0;
+  svm_fifo_segment_private_t *sp;
+  svm_fifo_t *f;
+  int rv;
+
+  clib_memset (a, 0, sizeof (*a));
+  a->segment_name = "fifo-test1";
+  a->segment_size = 256 << 10;
+
+  rv = svm_fifo_segment_create (sm, a);
+
+  SFIFO_TEST (!rv, "svm_fifo_segment_create returned %d", rv);
+
+  sp = svm_fifo_segment_get_segment (sm, a->new_segment_indices[0]);
+  f = svm_fifo_segment_alloc_fifo (sp, 4096, FIFO_SEGMENT_RX_FREELIST);
+
+  SFIFO_TEST (f != 0, "svm_fifo_segment_alloc_fifo");
+
+  test_data = format (0, "Hello world%c", 0);
+  vec_validate (retrieved_data, vec_len (test_data) - 1);
+
+  while (svm_fifo_max_enqueue (f) >= vec_len (test_data))
+    svm_fifo_enqueue_nowait (f, vec_len (test_data), test_data);
+
+  while (svm_fifo_max_dequeue (f) >= vec_len (test_data))
+    svm_fifo_dequeue_nowait (f, vec_len (retrieved_data), retrieved_data);
+
+  while (svm_fifo_max_enqueue (f) >= vec_len (test_data))
+    svm_fifo_enqueue_nowait (f, vec_len (test_data), test_data);
+
+  while (svm_fifo_max_dequeue (f) >= vec_len (test_data))
+    svm_fifo_dequeue_nowait (f, vec_len (retrieved_data), retrieved_data);
+
+  SFIFO_TEST (!memcmp (retrieved_data, test_data, vec_len (test_data)),
+	      "data should be identical");
+
+  vec_free (test_data);
+  vec_free (retrieved_data);
+  svm_fifo_segment_free_fifo (sp, f, FIFO_SEGMENT_RX_FREELIST);
+  svm_fifo_segment_delete (sm, sp);
+  return 0;
+}
+
+static int
+tcp_test_fifo_segment_slave (int verbose)
+{
+  svm_fifo_segment_create_args_t _a, *a = &_a;
+  svm_fifo_segment_main_t *sm = &segment_main;
+  u8 *test_data, *retrieved_data = 0;
+  svm_fifo_segment_private_t *sp;
+  svm_fifo_segment_header_t *fsh;
+  ssvm_shared_header_t *sh;
+  svm_fifo_t *f;
+  u32 *result;
+  int rv, i;
+
+  sleep (2);
+
+  sm->timeout_in_seconds = 5;
+  clib_memset (a, 0, sizeof (*a));
+  a->segment_name = "fifo-test1";
+
+  rv = svm_fifo_segment_attach (sm, a);
+
+  SFIFO_TEST (!rv, "svm_fifo_segment_attach returned %d", rv);
+
+  sp = svm_fifo_segment_get_segment (sm, a->new_segment_indices[0]);
+  sh = sp->ssvm.sh;
+  fsh = (svm_fifo_segment_header_t *) sh->opaque[0];
+
+  /* might wanna wait.. */
+  f = fsh->fifos;
+
+  /* Lazy bastards united */
+  test_data = format (0, "Hello world%c", 0);
+  vec_validate (retrieved_data, vec_len (test_data) - 1);
+
+  for (i = 0; i < 1000; i++)
+    {
+      svm_fifo_dequeue_nowait (f, vec_len (retrieved_data), retrieved_data);
+      if (memcmp (retrieved_data, test_data, vec_len (retrieved_data)))
+	{
+	  result = (u32 *) f->head_chunk->data;
+	  *result = 1;
+	  _exit (0);
+	}
+    }
+
+  result = (u32 *) f->head_chunk->data;
+  *result = 0;
+
+  vec_free (test_data);
+  vec_free (retrieved_data);
+  _exit (0);
+}
+
+static int
+tcp_test_fifo_segment_master_slave (int verbose)
+{
+  svm_fifo_segment_create_args_t _a, *a = &_a;
+  svm_fifo_segment_main_t *sm = &segment_main;
+  svm_fifo_segment_private_t *sp;
+  svm_fifo_t *f;
+  u8 *test_data;
+  u32 *result;
+  int rv, i;
+  pid_t pid;
+
+  pid = fork ();
+  if (pid < 0)
+    SFIFO_TEST (0, "fork failed");
+
+  if (!pid)
+    tcp_test_fifo_segment_slave (verbose);
+
+  clib_memset (a, 0, sizeof (*a));
+  a->segment_name = "fifo-test1";
+  a->segment_size = 256 << 10;
+
+  rv = svm_fifo_segment_create (sm, a);
+
+  SFIFO_TEST (!rv, "svm_fifo_segment_create returned %d", rv);
+
+  sp = svm_fifo_segment_get_segment (sm, a->new_segment_indices[0]);
+  f = svm_fifo_segment_alloc_fifo (sp, 4096, FIFO_SEGMENT_RX_FREELIST);
+
+  SFIFO_TEST (f != 0, "svm_fifo_segment_alloc_fifo alloc");
+
+  test_data = format (0, "Hello world%c", 0);
+
+  usleep (200e3);
+
+  for (i = 0; i < 1000; i++)
+    svm_fifo_enqueue_nowait (f, vec_len (test_data), test_data);
+
+  /* Wait for slave */
+  i = 0;
+  while (svm_fifo_max_dequeue (f) && i++ < 1e10)
+    ;
+
+  usleep (1e3);
+
+  result = (u32 *) f->head_chunk->data;
+  SFIFO_TEST (*result == 0, "slave reported no error");
+
+  vec_free (test_data);
+  svm_fifo_segment_free_fifo (sp, f, FIFO_SEGMENT_RX_FREELIST);
+  svm_fifo_segment_delete (sm, sp);
+  return 0;
+}
+
+static int
+tcp_test_fifo_segment_mempig (int verbose)
+{
+  svm_fifo_segment_create_args_t _a, *a = &_a;
+  svm_fifo_segment_main_t *sm = &segment_main;
+  svm_fifo_segment_private_t *sp;
+  svm_fifo_t *f;
+  svm_fifo_t **flist = 0;
+  int rv;
+  int i;
+
+  clib_memset (a, 0, sizeof (*a));
+
+  a->segment_name = "fifo-test1";
+  a->segment_size = 256 << 10;
+
+  rv = svm_fifo_segment_create (sm, a);
+
+  SFIFO_TEST (!rv, "svm_fifo_segment_create returned %d", rv);
+
+  sp = svm_fifo_segment_get_segment (sm, a->new_segment_indices[0]);
+
+  for (i = 0; i < 1000; i++)
+    {
+      f = svm_fifo_segment_alloc_fifo (sp, 4096, FIFO_SEGMENT_RX_FREELIST);
+      if (f == 0)
+	break;
+      vec_add1 (flist, f);
+    }
+
+  SFIFO_TEST (vec_len (flist), "created %d fifos", vec_len (flist));
+
+  for (i = 0; i < vec_len (flist); i++)
+    {
+      f = flist[i];
+      svm_fifo_segment_free_fifo (sp, f, FIFO_SEGMENT_RX_FREELIST);
+    }
+
+  _vec_len (flist) = 0;
+
+  for (i = 0; i < 1000; i++)
+    {
+      f = svm_fifo_segment_alloc_fifo (sp, 4096, FIFO_SEGMENT_RX_FREELIST);
+      if (f == 0)
+	break;
+      vec_add1 (flist, f);
+    }
+
+  SFIFO_TEST (vec_len (flist), "second try created %d fifos",
+	      vec_len (flist));
+  for (i = 0; i < vec_len (flist); i++)
+    {
+      f = flist[i];
+      svm_fifo_segment_free_fifo (sp, f, FIFO_SEGMENT_RX_FREELIST);
+    }
+
+  svm_fifo_segment_delete (sm, sp);
+  return 0;
+}
+
+static int
+tcp_test_fifo_segment (vlib_main_t * vm, unformat_input_t * input)
+{
+  int rv, verbose = 0;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "verbose"))
+	verbose = 1;
+      else if (unformat (input, "masterslave"))
+	{
+	  if ((rv = tcp_test_fifo_segment_master_slave (verbose)))
+	    return -1;
+	}
+      else if (unformat (input, "basic"))
+	{
+	  if ((rv = tcp_test_fifo_segment_hello_world (verbose)))
+	    return -1;
+	}
+      else if (unformat (input, "mempig"))
+	{
+	  if ((rv = tcp_test_fifo_segment_mempig (verbose)))
+	    return -1;
+	}
+      else if (unformat (input, "all"))
+	{
+	  if ((rv = tcp_test_fifo_segment_hello_world (verbose)))
+	    return -1;
+	  if ((rv = tcp_test_fifo_segment_mempig (verbose)))
+	    return -1;
+	  /* Pretty slow so avoid running it always
+	     if ((rv = tcp_test_fifo_segment_master_slave (verbose)))
+	     return -1;
+	   */
+	}
+      else
+	{
+	  vlib_cli_output (vm, "parse error: '%U'", format_unformat_error,
+			   input);
+	  return -1;
+	}
+    }
+  return 0;
+}
+
 static clib_error_t *
 svm_fifo_test (vlib_main_t * vm, unformat_input_t * input,
 	       vlib_cli_command_t * cmd_arg)
@@ -1113,6 +1522,8 @@ svm_fifo_test (vlib_main_t * vm, unformat_input_t * input,
 	res = tcp_test_fifo_replay (vm, input);
       else if (unformat (input, "grow"))
 	res = tcp_test_fifo_grow (vm, input);
+      else if (unformat (input, "segment"))
+	res = tcp_test_fifo_segment (vm, input);
       else if (unformat (input, "all"))
 	{
 	  if ((res = tcp_test_fifo1 (vm, input)))
@@ -1161,6 +1572,11 @@ svm_fifo_test (vlib_main_t * vm, unformat_input_t * input,
 	    goto done;
 
 	  if ((res = tcp_test_fifo_grow (vm, input)))
+	    goto done;
+
+	  str = "all";
+	  unformat_init_cstring (input, str);
+	  if ((res = tcp_test_fifo_segment (vm, input)))
 	    goto done;
 	}
       else
