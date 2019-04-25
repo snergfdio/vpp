@@ -14,7 +14,7 @@ jobs:
             sudo mkdir -p /var/ccache
       - restore_cache:
           keys:
-            - ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+            - ccache-v3-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
       - run:
           name: ccache setup
           command: |
@@ -39,7 +39,7 @@ jobs:
             export CCACHE_DIR=/var/ccache
             ccache --show-stats
       - save_cache:
-          key: ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+          key: ccache-v3-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
           paths:
             - /var/ccache
   centos7:
@@ -48,7 +48,7 @@ jobs:
     steps:
       - restore_cache:
           keys:
-            - ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+            - ccache-v3-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
       - run:
           name: ccache setup
           command: |
@@ -73,7 +73,7 @@ jobs:
             export CCACHE_DIR=/var/ccache
             ccache --show-stats
       - save_cache:
-          key: ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+          key: ccache-v3-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
           paths:
             - /var/ccache
 
@@ -83,7 +83,7 @@ jobs:
     steps:
       - restore_cache:
           keys:
-            - ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+            - ccache-v3-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
       - run:
           name: ccache setup
           command: |
@@ -112,7 +112,7 @@ jobs:
             export CCACHE_DIR=/var/ccache
             ccache --show-stats
       - save_cache:
-          key: ccache-v2-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
+          key: ccache-v3-{{ .Environment.CIRCLE_JOB }}-{{ .Environment.CIRCLE_BRANCH }}
           paths:
             - /var/ccache
 
