@@ -44,6 +44,7 @@ typedef enum
  _(INTEG_ERROR, "Integrity check failed")                       \
  _(CRYPTO_ENGINE_ERROR, "crypto engine error (packet dropped)") \
  _(REPLAY, "SA replayed packet")                                \
+ _(RUNT, "undersized packet")                                   \
  _(CHAINED_BUFFER, "chained buffers (packet dropped)")          \
  _(OVERSIZED_HEADER, "buffer with oversized header (dropped)")  \
  _(NO_TAIL_SPACE, "no enough buffer tail space (dropped)")
@@ -193,6 +194,13 @@ esp_decrypt_inline (vlib_main_t * vm,
 	  goto next;
 	}
 
+      if (pd->current_length < cpd.icv_sz + esp_sz + cpd.iv_sz)
+	{
+	  b[0]->error = node->errors[ESP_DECRYPT_ERROR_RUNT];
+	  next[0] = ESP_DECRYPT_NEXT_DROP;
+	  goto next;
+	}
+
       len = pd->current_length - cpd.icv_sz;
       current_sa_pkts += 1;
       current_sa_bytes += pd->current_length;
@@ -203,8 +211,7 @@ esp_decrypt_inline (vlib_main_t * vm,
 	  vec_add2_aligned (ptd->integ_ops, op, 1, CLIB_CACHE_LINE_BYTES);
 
 	  vnet_crypto_op_init (op, sa0->integ_op_id);
-	  op->key = sa0->integ_key.data;
-	  op->key_len = sa0->integ_key.len;
+	  op->key_index = sa0->integ_key_index;
 	  op->src = payload;
 	  op->flags = VNET_CRYPTO_OP_FLAG_HMAC_CHECK;
 	  op->user_data = b - bufs;
@@ -231,7 +238,7 @@ esp_decrypt_inline (vlib_main_t * vm,
 	  vnet_crypto_op_t *op;
 	  vec_add2_aligned (ptd->crypto_ops, op, 1, CLIB_CACHE_LINE_BYTES);
 	  vnet_crypto_op_init (op, sa0->crypto_dec_op_id);
-	  op->key = sa0->crypto_key.data;
+	  op->key_index = sa0->crypto_key_index;
 	  op->iv = payload;
 
 	  if (ipsec_sa_is_set_IS_AEAD (sa0))
