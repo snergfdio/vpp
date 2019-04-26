@@ -130,9 +130,9 @@ typedef struct
 #define VNET_CRYPTO_OP_FLAG_INIT_IV (1 << 0)
 #define VNET_CRYPTO_OP_FLAG_HMAC_CHECK (1 << 1)
   u32 key_index;
-  u32 len, salt;
+  u32 len;
   u16 aad_len;
-  u8 iv_len, digest_len, tag_len;
+  u8 digest_len, tag_len;
   u8 *iv;
   u8 *src;
   u8 *dst;

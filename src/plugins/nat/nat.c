@@ -188,11 +188,20 @@ nat_free_session_data (snat_main_t * sm, snat_session_t * s, u32 thread_index,
 
   if (is_fwd_bypass_session (s))
     {
+      if (snat_is_unk_proto_session (s))
+	{
+	  ed_key.proto = s->in2out.port;
+	  ed_key.r_port = 0;
+	  ed_key.l_port = 0;
+	}
+      else
+	{
+	  ed_key.proto = snat_proto_to_ip_proto (s->in2out.protocol);
+	  ed_key.l_port = s->in2out.port;
+	  ed_key.r_port = s->ext_host_port;
+	}
       ed_key.l_addr = s->in2out.addr;
       ed_key.r_addr = s->ext_host_addr;
-      ed_key.l_port = s->in2out.port;
-      ed_key.r_port = s->ext_host_port;
-      ed_key.proto = snat_proto_to_ip_proto (s->in2out.protocol);
       ed_key.fib_index = 0;
       ed_kv.key[0] = ed_key.as_u64[0];
       ed_kv.key[1] = ed_key.as_u64[1];
@@ -713,7 +722,7 @@ snat_add_static_mapping (ip4_address_t l_addr, ip4_address_t e_addr,
 
 	  if (!addr_only)
 	    {
-	      if (rp->l_port != l_port || rp->e_port != e_port
+	      if ((rp->l_port != l_port && rp->e_port != e_port)
 		  || rp->proto != proto)
 		continue;
 	    }
