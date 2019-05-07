@@ -806,7 +806,7 @@ sfifo_test_fifo4 (vlib_main_t * vm, unformat_input_t * input)
 static u32
 fifo_pos (svm_fifo_t * f, u32 pos)
 {
-  return pos;
+  return pos % f->size;
 }
 
 /* Avoids exposing svm_fifo.c internal function */
@@ -1194,6 +1194,7 @@ sfifo_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
   svm_fifo_chunk_t *c, *next, *prev;
   u8 *test_data = 0, *data_buf = 0;
   svm_fifo_t *f;
+  u32 old_tail;
 
   while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
     {
@@ -1288,10 +1289,14 @@ sfifo_test_fifo_grow (vlib_main_t * vm, unformat_input_t * input)
   SFIFO_TEST (f->size == fifo_size + 200, "size expected %u is %u",
 	      fifo_size + 200, f->size);
 
-  svm_fifo_dequeue (f, 201, data_buf);
+  old_tail = f->tail;
+  svm_fifo_dequeue (f, 101, data_buf);
 
   SFIFO_TEST (f->size == fifo_size + 200 + 10 * 100, "size expected %u is %u",
 	      fifo_size + 200 + 10 * 100, f->size);
+  SFIFO_TEST (f->tail == old_tail, "new tail expected %u is %u", old_tail,
+	      f->tail);
+
   /*
    * Enqueue/dequeue tests
    */
@@ -1451,8 +1456,403 @@ cleanup:
     }
 
   svm_fifo_free (f);
-
+  vec_free (test_data);
   vec_free (data_buf);
+  return 0;
+}
+
+static int
+chunk_list_len (svm_fifo_chunk_t * c)
+{
+  svm_fifo_chunk_t *it;
+  int count = 0;
+
+  if (!c)
+    return 0;
+
+  count = 1;
+  it = c->next;
+  while (it && it != c)
+    {
+      it = it->next;
+      count++;
+    }
+  return count;
+}
+
+static void
+chunk_list_free (svm_fifo_chunk_t * c, svm_fifo_chunk_t * stop)
+{
+  svm_fifo_chunk_t *it, *next;
+
+  it = c;
+  while (it && it != stop)
+    {
+      next = it->next;
+      clib_mem_free (it);
+      it = next;
+    }
+}
+
+static void
+chunk_list_splice (svm_fifo_chunk_t * a, svm_fifo_chunk_t * b)
+{
+  svm_fifo_chunk_t *it;
+
+  it = a;
+  while (it->next)
+    it = it->next;
+  it->next = b;
+}
+
+static int
+sfifo_test_fifo_shrink (vlib_main_t * vm, unformat_input_t * input)
+{
+  int __clib_unused verbose = 0, fifo_size = 101, chunk_size = 100;
+  int i, rv, test_n_bytes, diff, deq_bytes;
+  svm_fifo_chunk_t *c, *prev, *collected;
+  u8 *test_data = 0, *data_buf = 0;
+  svm_fifo_t *f;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "verbose"))
+	verbose = 1;
+      else
+	{
+	  vlib_cli_output (vm, "parse error: '%U'", format_unformat_error,
+			   input);
+	  return -1;
+	}
+    }
+
+  /*
+   * Init fifo with multiple chunks
+   */
+  f = fifo_prepare (fifo_size);
+  svm_fifo_init_pointers (f, 0, 0);
+
+  prev = 0;
+  for (i = 0; i < 11; i++)
+    {
+      c = clib_mem_alloc (sizeof (svm_fifo_chunk_t) + chunk_size);
+      c->length = 100;
+      c->start_byte = ~0;
+      c->next = prev;
+      prev = c;
+    }
+
+  svm_fifo_add_chunk (f, c);
+  SFIFO_TEST (f->size == 12 * chunk_size + 1, "size expected %u is %u",
+	      12 * chunk_size + 1, f->size);
+
+  /*
+   * No fifo wrap and no chunk used (one chunk)
+   */
+  rv = svm_fifo_reduce_size (f, chunk_size, 0);
+  SFIFO_TEST (rv == chunk_size, "len expected %u is %u", chunk_size, rv);
+  SFIFO_TEST (f->size == 12 * chunk_size + 1, "size expected %u is %u",
+	      12 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+
+  /* Check enqueue space to force size reduction */
+  (void) svm_fifo_max_enqueue (f);
+
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_COLLECT_CHUNKS, "collect flag should"
+	      " be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_SHRINK), "shrink flag should not be"
+	      " set");
+
+  collected = c = svm_fifo_collect_chunks (f);
+  rv = chunk_list_len (c);
+  SFIFO_TEST (rv == 1, "expected %u chunks got %u", 1, rv);
+  rv = chunk_list_len (f->start_chunk);
+  SFIFO_TEST (rv == 11, "expected %u chunks got %u", 11, rv);
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  /*
+   * Fifo wrap and multiple chunks used
+   */
+
+  /* Init test data and fifo */
+  test_n_bytes = f->nitems;
+  vec_validate (test_data, test_n_bytes - 1);
+  vec_validate (data_buf, vec_len (test_data));
+
+  for (i = 0; i < vec_len (test_data); i++)
+    test_data[i] = i;
+
+  svm_fifo_init_pointers (f, f->size / 2, f->size / 2);
+  for (i = 0; i < test_n_bytes; i++)
+    {
+      rv = svm_fifo_enqueue (f, sizeof (u8), &test_data[i]);
+      if (rv < 0)
+	SFIFO_TEST (0, "enqueue returned");
+    }
+
+  /* Try to reduce fifo size with fifo full */
+  rv = svm_fifo_reduce_size (f, 3.5 * chunk_size, 0);
+  SFIFO_TEST (rv == 3 * chunk_size, "len expected %u is %u", 3 * chunk_size,
+	      rv);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+
+  /* Check enqueue space to try size reduction. Should not work */
+  rv = svm_fifo_max_enqueue (f);
+
+  SFIFO_TEST (rv == 0, "free space expected %u is %u", 0, rv);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  /* Dequeue byte-by-byte up to last byte on last chunk */
+  deq_bytes = f->size - f->size / 2 - 1;
+  for (i = 0; i < deq_bytes; i++)
+    {
+      (void) svm_fifo_max_enqueue (f);
+      rv = svm_fifo_dequeue (f, 1, &data_buf[i]);
+      if (rv < 0)
+	SFIFO_TEST (0, "dequeue returned");
+    }
+
+  rv = svm_fifo_max_enqueue (f);
+
+  /* We've dequeued more than 3*chunk_size so nitems should be updated */
+  SFIFO_TEST (f->nitems == 8 * chunk_size, "nitems expected %u is %u",
+	      8 * chunk_size, f->nitems);
+  /* Free space should be what was dequeued - 3 * chunk_size, which was
+   * consumed by shrinking the fifo */
+  diff = deq_bytes - 3 * chunk_size;
+  SFIFO_TEST (rv == diff, "free space expected %u is %u", diff, rv);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  /* Dequeue one more such that head goes beyond last chunk */
+  rv = svm_fifo_dequeue (f, 1, &data_buf[deq_bytes]);
+  if (rv < 0)
+    SFIFO_TEST (0, "dequeue returned");
+
+  rv = svm_fifo_max_enqueue (f);
+  SFIFO_TEST (f->nitems == 8 * chunk_size, "nitems expected %u is %u",
+	      8 * chunk_size, f->nitems);
+  SFIFO_TEST (rv == diff + 1, "free space expected %u is %u", diff + 1, rv);
+  SFIFO_TEST (f->size == 8 * chunk_size + 1, "size expected %u is %u",
+	      8 * chunk_size + 1, f->size);
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_SHRINK), "shrink flag should not be"
+	      " set");
+  SFIFO_TEST (f->flags & SVM_FIFO_F_COLLECT_CHUNKS, "collect flag should"
+	      " be set");
+
+  /* Dequeue the rest of the data */
+  deq_bytes += 1;
+  for (i = 0; i < test_n_bytes - deq_bytes; i++)
+    {
+      rv = svm_fifo_dequeue (f, 1, &data_buf[i + deq_bytes]);
+      if (rv < 0)
+	SFIFO_TEST (0, "dequeue returned");
+    }
+
+  rv = svm_fifo_max_enqueue (f);
+
+  SFIFO_TEST (f->size == 8 * chunk_size + 1, "size expected %u is %u",
+	      8 * chunk_size + 1, f->size);
+  SFIFO_TEST (rv == 8 * chunk_size, "free space expected %u is %u",
+	      8 * chunk_size, rv);
+
+  rv = compare_data (data_buf, test_data, 0, vec_len (test_data),
+		     (u32 *) & i);
+  if (rv)
+    SFIFO_TEST (0, "[%d] dequeued %u expected %u", i, data_buf[i],
+		test_data[i]);
+
+  c = svm_fifo_collect_chunks (f);
+  rv = chunk_list_len (c);
+  SFIFO_TEST (rv == 3, "expected %u chunks got %u", 3, rv);
+  rv = chunk_list_len (f->start_chunk);
+  SFIFO_TEST (rv == 8, "expected %u chunks got %u", 8, rv);
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  /*
+   * OOO segment on chunk that should be removed
+   */
+
+  svm_fifo_add_chunk (f, c);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+
+  memset (data_buf, 0, vec_len (data_buf));
+  svm_fifo_init_pointers (f, f->size / 2, f->size / 2);
+  svm_fifo_enqueue (f, 200, test_data);
+  svm_fifo_enqueue_with_offset (f, 50, vec_len (test_data) - 250,
+				&test_data[250]);
+
+  /* Free space */
+  rv = svm_fifo_max_enqueue (f);
+  SFIFO_TEST (rv == vec_len (test_data) - 200, "free space expected %u is %u",
+	      vec_len (test_data) - 200, rv);
+
+  /* Ask to reduce size */
+  rv = svm_fifo_reduce_size (f, 3.5 * chunk_size, 0);
+  SFIFO_TEST (rv == 3 * chunk_size, "len expected %u is %u", 3 * chunk_size,
+	      rv);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+
+  /* Try to force size reduction but it should fail */
+  rv = svm_fifo_max_enqueue (f);
+
+  SFIFO_TEST (rv == vec_len (test_data) - 200, "free space expected %u is %u",
+	      vec_len (test_data) - 200, rv);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  /* Dequeue the in order data. This should shrink nitems */
+  rv = svm_fifo_dequeue (f, 200, data_buf);
+  if (rv < 0)
+    SFIFO_TEST (0, "dequeue returned");
+
+  rv = svm_fifo_max_enqueue (f);
+  SFIFO_TEST (rv == vec_len (test_data) - 200, "free space expected %u is %u",
+	      vec_len (test_data) - 200, rv);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->nitems == 11 * chunk_size - 200, "nitems expected %u is %u",
+	      11 * chunk_size - 200, f->nitems);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  /* Enqueue the missing 50 bytes. Fifo will become full */
+  rv = svm_fifo_enqueue (f, 50, &test_data[200]);
+  SFIFO_TEST (rv == vec_len (test_data) - 200, "free space expected %u is %u",
+	      vec_len (test_data) - 200, rv);
+
+  rv = svm_fifo_max_enqueue (f);
+
+  SFIFO_TEST (rv == 0, "free space expected %u is %u", 0, rv);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+
+  /* Dequeue a chunk and check nitems shrink but fifo still full */
+  svm_fifo_dequeue (f, 100, &data_buf[200]);
+
+  rv = svm_fifo_max_enqueue (f);
+
+  SFIFO_TEST (rv == 0, "free space expected %u is %u", 0, rv);
+  SFIFO_TEST (f->size == 11 * chunk_size + 1, "size expected %u is %u",
+	      11 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->nitems == 11 * chunk_size - 300, "nitems expected %u is %u",
+	      11 * chunk_size - 300, f->nitems);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  /* Dequeue enough to unwrap the fifo */
+  deq_bytes = f->size - f->size / 2 - 300;
+  svm_fifo_dequeue (f, deq_bytes, &data_buf[300]);
+  rv = svm_fifo_max_enqueue (f);
+
+  /* Overall we've dequeued deq_bytes + 300, but fifo size shrunk 300 */
+  SFIFO_TEST (rv == 300 + deq_bytes - 300, "free space expected %u is %u",
+	      300 + deq_bytes - 300, rv);
+  SFIFO_TEST (f->size == 8 * chunk_size + 1, "size expected %u is %u",
+	      8 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->nitems == 8 * chunk_size, "nitems expected %u is %u",
+	      8 * chunk_size, f->nitems);
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_SHRINK), "shrink flag should not be"
+	      " set");
+  SFIFO_TEST (f->flags & SVM_FIFO_F_COLLECT_CHUNKS, "collect flag should"
+	      " be set");
+
+  /* Dequeue the rest */
+  svm_fifo_dequeue (f, test_n_bytes / 2, &data_buf[300 + deq_bytes]);
+  rv = compare_data (data_buf, test_data, 0, vec_len (test_data),
+		     (u32 *) & i);
+  if (rv)
+    SFIFO_TEST (0, "[%d] dequeued %u expected %u", i, data_buf[i],
+		test_data[i]);
+
+  c = svm_fifo_collect_chunks (f);
+  rv = chunk_list_len (c);
+  SFIFO_TEST (rv == 3, "expected %u chunks got %u", 3, rv);
+  rv = chunk_list_len (f->start_chunk);
+  SFIFO_TEST (rv == 8, "expected %u chunks got %u", 8, rv);
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  chunk_list_splice (collected, c);
+
+  /*
+   * Remove all chunks possible
+   */
+  svm_fifo_init_pointers (f, 601, 601);
+  rv = svm_fifo_reduce_size (f, 8 * chunk_size, 1);
+  SFIFO_TEST (rv == 7 * chunk_size, "actual len expected %u is %u",
+	      7 * chunk_size, rv);
+  SFIFO_TEST (f->size == 6 * chunk_size + 1, "size expected %u is %u",
+	      6 * chunk_size + 1, f->size);
+  SFIFO_TEST (f->nitems == 1 * chunk_size, "nitems expected %u is %u",
+	      1 * chunk_size, f->nitems);
+  SFIFO_TEST (f->flags & SVM_FIFO_F_SHRINK, "shrink flag should be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+
+  rv = svm_fifo_max_enqueue (f);
+  SFIFO_TEST (rv == chunk_size, "free space expected %u is %u", chunk_size,
+	      rv);
+
+  /* Force head/tail to move to first chunk */
+  svm_fifo_enqueue (f, 1, test_data);
+  svm_fifo_dequeue (f, 1, data_buf);
+  rv = svm_fifo_max_enqueue (f);
+
+  SFIFO_TEST (rv == chunk_size, "free space expected %u is %u", chunk_size,
+	      rv);
+  SFIFO_TEST (f->size == chunk_size + 1, "size expected %u is %u",
+	      chunk_size + 1, f->size);
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_SHRINK), "shrink flag should not be"
+	      " set");
+  SFIFO_TEST (f->flags & SVM_FIFO_F_COLLECT_CHUNKS, "collect flag should"
+	      " be set");
+
+  c = svm_fifo_collect_chunks (f);
+  rv = chunk_list_len (c);
+  SFIFO_TEST (rv == 7, "expected %u chunks got %u", 7, rv);
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_COLLECT_CHUNKS), "collect flag should"
+	      " not be set");
+  SFIFO_TEST (!(f->flags & SVM_FIFO_F_MULTI_CHUNK), "multi-chunk flag should"
+	      " not be set");
+
+  chunk_list_splice (collected, c);
+
+  /*
+   * Cleanup
+   */
+
+  chunk_list_free (f->start_chunk->next, f->start_chunk);
+  chunk_list_free (collected, 0);
+  svm_fifo_free (f);
+  vec_free (test_data);
+  vec_free (data_buf);
+
   return 0;
 }
 
@@ -1611,6 +2011,74 @@ sfifo_test_fifo_segment_fifo_grow (int verbose)
   fifo_segment_free_fifo (fs, f);
   n_chunks = fifo_segment_num_free_chunks (fs, ~0);
   SFIFO_TEST (n_chunks == 2, "free chunks should be %u is %u", 2, n_chunks);
+
+  /*
+   * Cleanup
+   */
+  fifo_segment_delete (sm, fs);
+  vec_free (a->new_segment_indices);
+  return 0;
+}
+
+static int
+sfifo_test_fifo_segment_fifo_shrink (int verbose)
+{
+  fifo_segment_main_t *sm = &segment_main;
+  fifo_segment_create_args_t _a, *a = &_a;
+  int i, rv, chunk_size = 4096, n_chunks;
+  fifo_segment_t *fs;
+  svm_fifo_t *f;
+
+  clib_memset (a, 0, sizeof (*a));
+  a->segment_name = "fifo-test1";
+  a->segment_size = 256 << 10;
+
+  rv = fifo_segment_create (sm, a);
+
+  SFIFO_TEST (!rv, "svm_fifo_segment_create returned %d", rv);
+
+  /*
+   * Alloc and grow fifo
+   */
+  fs = fifo_segment_get_segment (sm, a->new_segment_indices[0]);
+  f = fifo_segment_alloc_fifo (fs, chunk_size, FIFO_SEGMENT_RX_FIFO);
+
+  SFIFO_TEST (f != 0, "svm_fifo_segment_alloc_fifo");
+
+  for (i = 0; i < 9; i++)
+    {
+      fifo_segment_grow_fifo (fs, f, chunk_size);
+      if (f->size != (i + 2) * chunk_size)
+	SFIFO_TEST (0, "fifo size should be %u is %u",
+		    (i + 2) * chunk_size, f->size);
+    }
+
+  rv = svm_fifo_reduce_size (f, 3.5 * chunk_size, 1 /* is producer */ );
+  SFIFO_TEST (rv == 3 * chunk_size, "len expected %u is %u", 3 * chunk_size,
+	      rv);
+
+  n_chunks = fifo_segment_num_free_chunks (fs, chunk_size);
+  SFIFO_TEST (n_chunks == 0, "free chunks should be %u is %u", 0, n_chunks);
+
+  fifo_segment_collect_fifo_chunks (fs, f);
+
+  n_chunks = fifo_segment_num_free_chunks (fs, chunk_size);
+  SFIFO_TEST (n_chunks == 3, "free chunks should be %u is %u", 3, n_chunks);
+
+  rv = svm_fifo_reduce_size (f, 7 * chunk_size - 1, 1 /* is producer */ );
+  SFIFO_TEST (rv == 6 * chunk_size, "len expected %u is %u", 6 * chunk_size,
+	      rv);
+
+  fifo_segment_collect_fifo_chunks (fs, f);
+
+  n_chunks = fifo_segment_num_free_chunks (fs, chunk_size);
+  SFIFO_TEST (n_chunks == 9, "free chunks should be %u is %u", 9, n_chunks);
+  /*
+   * Free
+   */
+  fifo_segment_free_fifo (fs, f);
+  n_chunks = fifo_segment_num_free_chunks (fs, ~0);
+  SFIFO_TEST (n_chunks == 9, "free chunks should be %u is %u", 9, n_chunks);
 
   /*
    * Cleanup
@@ -1819,6 +2287,11 @@ sfifo_test_fifo_segment (vlib_main_t * vm, unformat_input_t * input)
 	  if ((rv = sfifo_test_fifo_segment_fifo_grow (verbose)))
 	    return -1;
 	}
+      else if (unformat (input, "shrink fifo"))
+	{
+	  if ((rv = sfifo_test_fifo_segment_fifo_shrink (verbose)))
+	    return -1;
+	}
       else if (unformat (input, "all"))
 	{
 	  if ((rv = sfifo_test_fifo_segment_hello_world (verbose)))
@@ -1826,6 +2299,8 @@ sfifo_test_fifo_segment (vlib_main_t * vm, unformat_input_t * input)
 	  if ((rv = sfifo_test_fifo_segment_mempig (verbose)))
 	    return -1;
 	  if ((rv = sfifo_test_fifo_segment_fifo_grow (verbose)))
+	    return -1;
+	  if ((rv = sfifo_test_fifo_segment_fifo_shrink (verbose)))
 	    return -1;
 	  /* Pretty slow so avoid running it always
 	     if ((rv = sfifo_test_fifo_segment_master_slave (verbose)))
@@ -1871,6 +2346,8 @@ svm_fifo_test (vlib_main_t * vm, unformat_input_t * input,
 	res = sfifo_test_fifo_replay (vm, input);
       else if (unformat (input, "grow"))
 	res = sfifo_test_fifo_grow (vm, input);
+      else if (unformat (input, "shrink"))
+	res = sfifo_test_fifo_shrink (vm, input);
       else if (unformat (input, "segment"))
 	res = sfifo_test_fifo_segment (vm, input);
       else if (unformat (input, "all"))
@@ -1927,6 +2404,9 @@ svm_fifo_test (vlib_main_t * vm, unformat_input_t * input,
 	    goto done;
 
 	  if ((res = sfifo_test_fifo_grow (vm, input)))
+	    goto done;
+
+	  if ((res = sfifo_test_fifo_shrink (vm, input)))
 	    goto done;
 
 	  str = "all";

@@ -478,6 +478,9 @@ crypto_ipsecmb_init (vlib_main_t * vm)
   if ((error = vlib_call_init_function (vm, vnet_crypto_init)))
     return error;
 
+  if (!clib_cpu_supports_aes ())
+    return 0;
+
   /*
    * A priority that is better than OpenSSL but worse than VPP natvie
    */
@@ -550,7 +553,7 @@ VLIB_INIT_FUNCTION (crypto_ipsecmb_init);
 VLIB_PLUGIN_REGISTER () =
 {
   .version = VPP_BUILD_VER,
-  .description = "Intel IPSEC multi-buffer",
+  .description = "Intel IPSEC Multi-buffer Crypto Engine",
 };
 /* *INDENT-ON* */
 
