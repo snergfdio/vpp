@@ -392,18 +392,6 @@ done:
   REPLY_MACRO (VL_API_SW_INTERFACE_ADD_DEL_ADDRESS_REPLY);
 }
 
-void stats_dslock_with_hint (int hint, int tag) __attribute__ ((weak));
-void
-stats_dslock_with_hint (int hint, int tag)
-{
-}
-
-void stats_dsunlock (void) __attribute__ ((weak));
-void
-stats_dsunlock (void)
-{
-}
-
 static void
 vl_api_sw_interface_set_table_t_handler (vl_api_sw_interface_set_table_t * mp)
 {
@@ -414,14 +402,10 @@ vl_api_sw_interface_set_table_t_handler (vl_api_sw_interface_set_table_t * mp)
 
   VALIDATE_SW_IF_INDEX (mp);
 
-  stats_dslock_with_hint (1 /* release hint */ , 4 /* tag */ );
-
   if (mp->is_ipv6)
     rv = ip_table_bind (FIB_PROTOCOL_IP6, sw_if_index, table_id, 1);
   else
     rv = ip_table_bind (FIB_PROTOCOL_IP4, sw_if_index, table_id, 1);
-
-  stats_dsunlock ();
 
   BAD_SW_IF_INDEX_LABEL;
 
@@ -661,52 +645,34 @@ vl_api_sw_interface_clear_stats_t_handler (vl_api_sw_interface_clear_stats_t *
   vnet_interface_main_t *im = &vnm->interface_main;
   vlib_simple_counter_main_t *sm;
   vlib_combined_counter_main_t *cm;
-  static vnet_main_t **my_vnet_mains;
-  int i, j, n_counters;
+  int j, n_counters;
   int rv = 0;
 
   if (mp->sw_if_index != ~0)
     VALIDATE_SW_IF_INDEX (mp);
 
-  vec_reset_length (my_vnet_mains);
-
-  for (i = 0; i < vec_len (vnet_mains); i++)
-    {
-      if (vnet_mains[i])
-	vec_add1 (my_vnet_mains, vnet_mains[i]);
-    }
-
-  if (vec_len (vnet_mains) == 0)
-    vec_add1 (my_vnet_mains, vnm);
-
   n_counters = vec_len (im->combined_sw_if_counters);
 
   for (j = 0; j < n_counters; j++)
     {
-      for (i = 0; i < vec_len (my_vnet_mains); i++)
-	{
-	  im = &my_vnet_mains[i]->interface_main;
-	  cm = im->combined_sw_if_counters + j;
-	  if (mp->sw_if_index == (u32) ~ 0)
-	    vlib_clear_combined_counters (cm);
-	  else
-	    vlib_zero_combined_counter (cm, ntohl (mp->sw_if_index));
-	}
+      im = &vnm->interface_main;
+      cm = im->combined_sw_if_counters + j;
+      if (mp->sw_if_index == (u32) ~ 0)
+	vlib_clear_combined_counters (cm);
+      else
+	vlib_zero_combined_counter (cm, ntohl (mp->sw_if_index));
     }
 
   n_counters = vec_len (im->sw_if_counters);
 
   for (j = 0; j < n_counters; j++)
     {
-      for (i = 0; i < vec_len (my_vnet_mains); i++)
-	{
-	  im = &my_vnet_mains[i]->interface_main;
-	  sm = im->sw_if_counters + j;
-	  if (mp->sw_if_index == (u32) ~ 0)
-	    vlib_clear_simple_counters (sm);
-	  else
-	    vlib_zero_simple_counter (sm, ntohl (mp->sw_if_index));
-	}
+      im = &vnm->interface_main;
+      sm = im->sw_if_counters + j;
+      if (mp->sw_if_index == (u32) ~ 0)
+	vlib_clear_simple_counters (sm);
+      else
+	vlib_zero_simple_counter (sm, ntohl (mp->sw_if_index));
     }
 
   BAD_SW_IF_INDEX_LABEL;

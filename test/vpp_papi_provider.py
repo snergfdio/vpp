@@ -10,27 +10,9 @@ import time
 from collections import deque
 
 from six import moves, iteritems
-from vpp_papi import VPP, mac_pton
+from vpp_papi import VPPApiClient, mac_pton
 from hook import Hook
 from vpp_ip_route import MPLS_IETF_MAX_LABEL, MPLS_LABEL_INVALID
-
-
-class QOS_SOURCE:
-    EXT = 0
-    VLAN = 1
-    MPLS = 2
-    IP = 3
-
-
-class SYSLOG_SEVERITY:
-    EMERG = 0
-    ALERT = 1
-    CRIT = 2
-    ERR = 3
-    WARN = 4
-    NOTICE = 5
-    INFO = 6
-    DBG = 7
 
 
 #
@@ -87,7 +69,6 @@ defaultmapping = {
     'ip_punt_redirect': {'is_add': 1, },
     'ip_table_add_del': {'is_add': 1, },
     'ip_unnumbered_dump': {'sw_if_index': 4294967295, },
-    'ipip_add_tunnel': {'is_ipv6': 1, 'instance': 4294967295, },
     'ipsec_interface_add_del_spd': {'is_add': 1, },
     'ipsec_sad_entry_add_del': {'is_add': 1, },
     'ipsec_spd_add_del': {'is_add': 1, },
@@ -128,10 +109,6 @@ defaultmapping = {
     'policer_add_del': {'is_add': 1, 'conform_action_type': 1, },
     'proxy_arp_add_del': {'is_add': 1, },
     'proxy_arp_intfc_enable_disable': {'is_enable': 1, },
-    'punt_socket_register': {'protocol': 17, 'header_version': 1,
-                             'is_ip4': 1, },
-    'punt_socket_deregister': {'protocol': 17, 'is_ip4': 1, },
-    'punt_socket_dump': {'is_ip6': 1, },
     'set_ip_flow_hash': {'src': 1, 'dst': 1, 'sport': 1, 'dport': 1,
                          'proto': 1, },
     'set_ipfix_exporter': {'collector_port': 4739, },
@@ -170,6 +147,14 @@ defaultmapping = {
 }
 
 
+class CliFailedCommandError(Exception):
+    """ cli command failed."""
+
+
+class CliSyntaxError(Exception):
+    """ cli command had a syntax error."""
+
+
 class UnexpectedApiReturnValueError(Exception):
     """ exception raised when the API return value is unexpected """
     pass
@@ -191,11 +176,9 @@ class VppPapiProvider(object):
         self._expect_api_retval = self._zero
         self._expect_stack = []
 
-        install_dir = os.getenv('VPP_INSTALL_PATH')
-
-        # Vapi requires 'VPP_API_DIR', not set when run from Makefile.
-        if 'VPP_API_DIR' not in os.environ:
-            os.environ['VPP_API_DIR'] = os.getenv('VPP_INSTALL_PATH')
+        # install_dir is a class attribute. We need to set it before
+        # calling the constructor.
+        VPPApiClient.apidir = os.getenv('VPP_INSTALL_PATH')
 
         use_socket = False
         try:
@@ -203,10 +186,11 @@ class VppPapiProvider(object):
                 use_socket = True
         except KeyError:
             pass
-        self.vpp = VPP(logger=test_class.logger,
-                       read_timeout=read_timeout,
-                       use_socket=use_socket,
-                       server_address=test_class.api_sock)
+
+        self.vpp = VPPApiClient(logger=test_class.logger,
+                                read_timeout=read_timeout,
+                                use_socket=use_socket,
+                                server_address=test_class.api_sock)
         self._events = deque()
 
     def __enter__(self):
@@ -367,6 +351,10 @@ class VppPapiProvider(object):
         cli += '\n'
         r = self.papi.cli_inband(cmd=cli)
         self.hook.after_cli(cli)
+        if r.retval == -156:
+            raise CliSyntaxError(r.reply)
+        if r.retval != 0:
+            raise CliFailedCommandError(r.reply)
         if hasattr(r, 'reply'):
             return r.reply
 
@@ -1962,27 +1950,18 @@ class VppPapiProvider(object):
              'namespace_id': namespace_id,
              'namespace_id_len': len(namespace_id)})
 
-    def punt_socket_register(self, port, pathname, protocol=0x11,
-                             header_version=1, is_ip4=1):
+    def punt_socket_register(self, reg, pathname,
+                             header_version=1):
         """ Register punt socket """
         return self.api(self.papi.punt_socket_register,
                         {'header_version': header_version,
-                         'punt': {'ipv': is_ip4,
-                                  'l4_protocol': protocol,
-                                  'l4_port': port},
+                         'punt': reg,
                          'pathname': pathname})
 
-    def punt_socket_deregister(self, port, protocol=0x11, is_ip4=1):
+    def punt_socket_deregister(self, reg):
         """ Unregister punt socket """
         return self.api(self.papi.punt_socket_deregister,
-                        {'punt': {'ipv': is_ip4,
-                                  'l4_protocol': protocol,
-                                  'l4_port': port}})
-
-    def punt_socket_dump(self, is_ip6=1):
-        """ Dump punt socket"""
-        return self.api(self.papi.punt_socket_dump,
-                        {'is_ipv6': is_ip6})
+                        {'punt': reg})
 
     def gbp_endpoint_add(self, sw_if_index, ips, mac, sclass, flags,
                          tun_src, tun_dst):

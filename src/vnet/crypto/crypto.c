@@ -180,7 +180,8 @@ vnet_crypto_key_len_check (vnet_crypto_alg_t alg, u16 length)
 #define _(n, s, l) \
       case VNET_CRYPTO_ALG_##n: \
         if ((l) == length) \
-          return 1;
+          return 1;        \
+        break;
       foreach_crypto_cipher_alg foreach_crypto_aead_alg
 #undef _
 	/* HMAC allows any key length */
@@ -203,7 +204,6 @@ vnet_crypto_key_add (vlib_main_t * vm, vnet_crypto_alg_t alg, u8 * data,
   vnet_crypto_engine_t *engine;
   vnet_crypto_key_t *key;
 
-  ASSERT (vnet_crypto_key_len_check (alg, length));
   if (!vnet_crypto_key_len_check (alg, length))
     return ~0;
 
@@ -237,28 +237,6 @@ vnet_crypto_key_del (vlib_main_t * vm, vnet_crypto_key_index_t index)
   clib_memset (key->data, 0, vec_len (key->data));
   vec_free (key->data);
   pool_put (cm->keys, key);
-}
-
-void
-vnet_crypto_key_modify (vlib_main_t * vm, vnet_crypto_key_index_t index,
-			vnet_crypto_alg_t alg, u8 * data, u16 length)
-{
-  vnet_crypto_main_t *cm = &crypto_main;
-  vnet_crypto_engine_t *engine;
-  vnet_crypto_key_t *key = pool_elt_at_index (cm->keys, index);
-
-  if (vec_len (key->data))
-    clib_memset (key->data, 0, vec_len (key->data));
-  vec_free (key->data);
-  vec_validate_aligned (key->data, length - 1, CLIB_CACHE_LINE_BYTES);
-  clib_memcpy (key->data, data, length);
-  key->alg = alg;
-
-  /* *INDENT-OFF* */
-  vec_foreach (engine, cm->engines)
-    if (engine->key_op_handler)
-      engine->key_op_handler (vm, VNET_CRYPTO_KEY_OP_MODIFY, index);
-  /* *INDENT-ON* */
 }
 
 static void

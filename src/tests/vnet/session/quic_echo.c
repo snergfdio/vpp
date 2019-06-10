@@ -38,7 +38,7 @@
 #include <vpp/api/vpe_all_api_h.h>
 #undef vl_printfun
 
-#define QUIC_ECHO_DBG 0
+#define QUIC_ECHO_DBG 1
 #define DBG(_fmt, _args...)			\
     if (QUIC_ECHO_DBG) 				\
       clib_warning (_fmt, ##_args)
@@ -93,8 +93,8 @@ typedef struct
   uword *session_index_by_vpp_handles;
 
   /* Hash table for shared segment_names */
-  uword *shared_segment_names;
-  clib_spinlock_t segment_names_lock;
+  uword *shared_segment_handles;
+  clib_spinlock_t segment_handles_lock;
 
   /* intermediate rx buffer */
   u8 *rx_buf;
@@ -138,6 +138,10 @@ typedef struct
   u8 test_return_packets;
   u64 bytes_to_send;
   u32 fifo_size;
+  u32 quic_streams;
+  u8 *appns_id;
+  u64 appns_flags;
+  u64 appns_secret;
 
   u32 n_clients;
   u64 tx_total;
@@ -207,18 +211,18 @@ wait_for_segment_allocation (u64 segment_handle)
   f64 timeout;
   timeout = clib_time_now (&em->clib_time) + TIMEOUT;
   uword *segment_present;
-  DBG ("ASKING for %lu", segment_handle);
+  DBG ("Waiting for segment %lx...", segment_handle);
   while (clib_time_now (&em->clib_time) < timeout)
     {
-      clib_spinlock_lock (&em->segment_names_lock);
-      segment_present = hash_get (em->shared_segment_names, segment_handle);
-      clib_spinlock_unlock (&em->segment_names_lock);
+      clib_spinlock_lock (&em->segment_handles_lock);
+      segment_present = hash_get (em->shared_segment_handles, segment_handle);
+      clib_spinlock_unlock (&em->segment_handles_lock);
       if (segment_present != 0)
 	return 0;
       if (em->time_to_stop == 1)
 	return 0;
     }
-  DBG ("timeout waiting for segment_allocation %lu", segment_handle);
+  DBG ("timeout waiting for segment_allocation %lx", segment_handle);
   return -1;
 }
 
@@ -286,6 +290,14 @@ application_send_attach (echo_main_t * em)
   bmp->options[APP_OPTIONS_ADD_SEGMENT_SIZE] = 128 << 20;
   bmp->options[APP_OPTIONS_SEGMENT_SIZE] = 256 << 20;
   bmp->options[APP_OPTIONS_EVT_QUEUE_SIZE] = 256;
+  if (em->appns_id)
+    {
+      bmp->namespace_id_len = vec_len (em->appns_id);
+      clib_memcpy_fast (bmp->namespace_id, em->appns_id,
+			bmp->namespace_id_len);
+      bmp->options[APP_OPTIONS_FLAGS] |= em->appns_flags;
+      bmp->options[APP_OPTIONS_NAMESPACE_SECRET] = em->appns_secret;
+    }
   vl_msg_api_send_shmem (em->vl_input_queue, (u8 *) & bmp);
 
   cert_mp = vl_msg_api_alloc (sizeof (*cert_mp) + test_srv_crt_rsa_len);
@@ -410,10 +422,10 @@ vl_api_application_attach_reply_t_handler (vl_api_application_attach_reply_t *
 			       -1))
 	goto failed;
     }
-  DBG ("SETTING for %lu", segment_handle);
-  clib_spinlock_lock (&em->segment_names_lock);
-  hash_set (em->shared_segment_names, segment_handle, 1);
-  clib_spinlock_unlock (&em->segment_names_lock);
+  clib_spinlock_lock (&em->segment_handles_lock);
+  hash_set (em->shared_segment_handles, segment_handle, 1);
+  clib_spinlock_unlock (&em->segment_handles_lock);
+  DBG ("Mapped new segment %lx", segment_handle);
 
   em->state = STATE_ATTACHED;
   return;
@@ -512,6 +524,8 @@ vl_api_map_another_segment_t_handler (vl_api_map_another_segment_t * mp)
   echo_main_t *em = &echo_main;
   int rv;
   int *fds = 0;
+  u64 segment_handle;
+  segment_handle = clib_net_to_host_u64 (mp->segment_handle);
 
   if (mp->fd_flags & SESSION_FD_F_MEMFD_SEGMENT)
     {
@@ -522,11 +536,11 @@ vl_api_map_another_segment_t_handler (vl_api_map_another_segment_t * mp)
 	clib_warning
 	  ("svm_fifo_segment_attach ('%s') failed on SSVM_SEGMENT_MEMFD",
 	   mp->segment_name);
-      DBG ("SETTING for %lu", mp->segment_name);
-      clib_spinlock_lock (&em->segment_names_lock);
-      hash_set (em->shared_segment_names, mp->segment_name, 1);
-      clib_spinlock_unlock (&em->segment_names_lock);
+      clib_spinlock_lock (&em->segment_handles_lock);
+      hash_set (em->shared_segment_handles, segment_handle, 1);
+      clib_spinlock_unlock (&em->segment_handles_lock);
       vec_free (fds);
+      DBG ("Mapped new segment %lx", segment_handle);
       return;
     }
 
@@ -541,11 +555,11 @@ vl_api_map_another_segment_t_handler (vl_api_map_another_segment_t * mp)
 		    mp->segment_name);
       return;
     }
+  clib_spinlock_lock (&em->segment_handles_lock);
+  hash_set (em->shared_segment_handles, mp->segment_name, 1);
+  clib_spinlock_unlock (&em->segment_handles_lock);
   clib_warning ("Mapped new segment '%s' size %d", mp->segment_name,
 		mp->segment_size);
-  clib_spinlock_lock (&em->segment_names_lock);
-  hash_set (em->shared_segment_names, mp->segment_name, 1);
-  clib_spinlock_unlock (&em->segment_names_lock);
 }
 
 static void
@@ -602,8 +616,8 @@ recv_data_chunk (echo_main_t * em, echo_session_t * s, u8 * rx_buf)
 	  n_to_read -= n_read;
 
 	  s->bytes_received += n_read;
+	  ASSERT (s->bytes_to_receive >= n_read);
 	  s->bytes_to_receive -= n_read;
-	  ASSERT (s->bytes_to_receive >= 0);
 	}
       else
 	break;
@@ -691,6 +705,7 @@ client_send_disconnect (echo_main_t * em, echo_session_t * s)
   dmp->_vl_msg_id = ntohs (VL_API_DISCONNECT_SESSION);
   dmp->client_index = em->my_client_index;
   dmp->handle = s->vpp_session_handle;
+  DBG ("Sending Session disonnect handle %lu", dmp->handle);
   vl_msg_api_send_shmem (em->vl_input_queue, (u8 *) & dmp);
 }
 
@@ -754,7 +769,6 @@ session_accepted_handler (session_accepted_msg_t * mp)
   /* Allocate local session and set it up */
   pool_get (em->sessions, session);
   session_index = session - em->sessions;
-  DBG ("Setting session_index %lu", session_index);
 
   if (wait_for_segment_allocation (segment_handle))
     {
@@ -774,6 +788,7 @@ session_accepted_handler (session_accepted_msg_t * mp)
 					 svm_msg_q_t *);
 
   /* Add it to lookup table */
+  DBG ("Accepted session handle %lx, idx %lu", mp->handle, session_index);
   hash_set (em->session_index_by_vpp_handles, mp->handle, session_index);
 
   /*
@@ -861,6 +876,7 @@ session_connected_handler (session_connected_msg_t * mp)
   session->vpp_evt_q = uword_to_pointer (mp->vpp_event_queue_address,
 					 svm_msg_q_t *);
 
+  DBG ("Connected session handle %lx, idx %lu", mp->handle, session_index);
   hash_set (em->session_index_by_vpp_handles, mp->handle, session_index);
 
   if (mp->context == QUIC_SESSION_TYPE_QUIC)
@@ -896,8 +912,7 @@ session_disconnected_handler (session_disconnected_msg_t * mp)
   echo_session_t *session = 0;
   uword *p;
   int rv = 0;
-  DBG ("Got a SESSION_CTRL_EVT_DISCONNECTED for session %lu", mp->handle);
-
+  DBG ("Disonnected session handle %lx", mp->handle);
   p = hash_get (em->session_index_by_vpp_handles, mp->handle);
   if (!p)
     {
@@ -931,6 +946,7 @@ session_reset_handler (session_reset_msg_t * mp)
   uword *p;
   int rv = 0;
 
+  DBG ("Reset session handle %lx", mp->handle);
   p = hash_get (em->session_index_by_vpp_handles, mp->handle);
 
   if (p)
@@ -1367,7 +1383,7 @@ vl_api_disconnect_session_reply_t_handler (vl_api_disconnect_session_reply_t *
 {
   echo_main_t *em = &echo_main;
   uword *p;
-  DBG ("Got disonnected reply for session %lu", mp->handle);
+  DBG ("Got disonnected reply for session handle %lu", mp->handle);
 
   if (mp->retval)
     {
@@ -1448,14 +1464,15 @@ main (int argc, char **argv)
 
   clib_memset (em, 0, sizeof (*em));
   em->session_index_by_vpp_handles = hash_create (0, sizeof (uword));
-  em->shared_segment_names = hash_create (0, sizeof (uword));
-  clib_spinlock_init (&em->segment_names_lock);
+  em->shared_segment_handles = hash_create (0, sizeof (uword));
+  clib_spinlock_init (&em->segment_handles_lock);
   em->my_pid = getpid ();
   em->socket_name = 0;
   em->use_sock_api = 1;
   em->fifo_size = 64 << 10;
   em->n_clients = 1;
   em->max_test_msg = 50;
+  em->quic_streams = 1;
 
   clib_time_init (&em->clib_time);
   init_error_string_table (em);
@@ -1476,7 +1493,7 @@ main (int argc, char **argv)
 	i_am_server = 0;
       else if (unformat (a, "no-return"))
 	em->no_return = 1;
-      else if (unformat (a, "test"))
+      else if (unformat (a, "test-bytes"))
 	test_return_packets = 1;
       else if (unformat (a, "bytes %lld", &mbytes))
 	{
@@ -1497,6 +1514,19 @@ main (int argc, char **argv)
       else if (unformat (a, "fifo-size %d", &tmp))
 	em->fifo_size = tmp << 10;
       else if (unformat (a, "nclients %d", &em->n_clients))
+	;
+      else if (unformat (a, "appns %_%v%_", &em->appns_id))
+	;
+      else if (unformat (a, "all-scope"))
+	em->appns_flags |= (APP_OPTIONS_FLAGS_USE_GLOBAL_SCOPE
+			    | APP_OPTIONS_FLAGS_USE_LOCAL_SCOPE);
+      else if (unformat (a, "local-scope"))
+	em->appns_flags = APP_OPTIONS_FLAGS_USE_LOCAL_SCOPE;
+      else if (unformat (a, "global-scope"))
+	em->appns_flags = APP_OPTIONS_FLAGS_USE_GLOBAL_SCOPE;
+      else if (unformat (a, "secret %lu", &em->appns_secret))
+	;
+      else if (unformat (a, "quic-streams %d", &em->quic_streams))
 	;
       else
 	{

@@ -156,18 +156,19 @@ esp_decrypt_inline (vlib_main_t * vm,
 
       if (vnet_buffer (b[0])->ipsec.sad_index != current_sa_index)
 	{
+	  if (current_sa_pkts)
+	    vlib_increment_combined_counter (&ipsec_sa_counters, thread_index,
+					     current_sa_index,
+					     current_sa_pkts,
+					     current_sa_bytes);
+	  current_sa_bytes = current_sa_pkts = 0;
+
 	  current_sa_index = vnet_buffer (b[0])->ipsec.sad_index;
 	  sa0 = pool_elt_at_index (im->sad, current_sa_index);
 	  cpd.icv_sz = sa0->integ_icv_size;
 	  cpd.iv_sz = sa0->crypto_iv_size;
 	  cpd.flags = sa0->flags;
 	  cpd.sa_index = current_sa_index;
-
-	  vlib_increment_combined_counter (&ipsec_sa_counters, thread_index,
-					   current_sa_index, current_sa_pkts,
-					   current_sa_bytes);
-
-	  current_sa_bytes = current_sa_pkts = 0;
 	}
 
       /* store packet data for next round for easier prefetch */
@@ -369,7 +370,7 @@ esp_decrypt_inline (vlib_main_t * vm,
       sa0 = vec_elt_at_index (im->sad, pd->sa_index);
       u8 *payload = b[0]->data + pd->current_data;
 
-      ipsec_sa_anti_replay_advance (sa0, &((esp_header_t *) payload)->seq);
+      ipsec_sa_anti_replay_advance (sa0, ((esp_header_t *) payload)->seq);
 
       esp_footer_t *f = (esp_footer_t *) (b[0]->data + pd->current_data +
 					  pd->current_length - sizeof (*f) -
@@ -424,13 +425,13 @@ esp_decrypt_inline (vlib_main_t * vm,
 	    {
 	      next[0] = ESP_DECRYPT_NEXT_IP4_INPUT;
 	      b[0]->current_data = pd->current_data + adv;
-	      b[0]->current_length = pd->current_length + adv - tail;
+	      b[0]->current_length = pd->current_length - adv - tail;
 	    }
 	  else if (f->next_header == IP_PROTOCOL_IPV6)
 	    {
 	      next[0] = ESP_DECRYPT_NEXT_IP6_INPUT;
 	      b[0]->current_data = pd->current_data + adv;
-	      b[0]->current_length = pd->current_length + adv - tail;
+	      b[0]->current_length = pd->current_length - adv - tail;
 	    }
 	  else
 	    {

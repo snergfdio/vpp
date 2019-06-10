@@ -171,13 +171,19 @@ ipsec_sa_add (u32 id,
 					      im->crypto_algs[crypto_alg].alg,
 					      (u8 *) ck->data, ck->len);
   if (~0 == sa->crypto_key_index)
-    return VNET_API_ERROR_INVALID_VALUE;
+    {
+      pool_put (im->sad, sa);
+      return VNET_API_ERROR_KEY_LENGTH;
+    }
 
   sa->integ_key_index = vnet_crypto_key_add (vm,
 					     im->integ_algs[integ_alg].alg,
 					     (u8 *) ik->data, ik->len);
   if (~0 == sa->integ_key_index)
-    return VNET_API_ERROR_INVALID_VALUE;
+    {
+      pool_put (im->sad, sa);
+      return VNET_API_ERROR_KEY_LENGTH;
+    }
 
   err = ipsec_check_support_cb (im, sa);
   if (err)
@@ -331,52 +337,6 @@ ipsec_is_sa_used (u32 sa_index)
       return 1;
   }));
   /* *INDENT-ON* */
-
-  return 0;
-}
-
-int
-ipsec_set_sa_key (u32 id, const ipsec_key_t * ck, const ipsec_key_t * ik)
-{
-  vlib_main_t *vm = vlib_get_main ();
-  ipsec_main_t *im = &ipsec_main;
-  uword *p;
-  u32 sa_index;
-  ipsec_sa_t *sa = 0;
-  clib_error_t *err;
-
-  p = hash_get (im->sa_index_by_sa_id, id);
-  if (!p)
-    return VNET_API_ERROR_SYSCALL_ERROR_1;	/* no such sa-id */
-
-  sa_index = p[0];
-  sa = pool_elt_at_index (im->sad, sa_index);
-
-  /* new crypto key */
-  if (ck)
-    {
-      clib_memcpy (&sa->crypto_key, ck, sizeof (sa->crypto_key));
-      vnet_crypto_key_modify (vm, sa->crypto_key_index, sa->crypto_calg,
-			      (u8 *) ck->data, ck->len);
-    }
-
-  /* new integ key */
-  if (ik)
-    {
-      clib_memcpy (&sa->integ_key, 0, sizeof (sa->integ_key));
-      vnet_crypto_key_modify (vm, sa->integ_key_index, sa->integ_calg,
-			      (u8 *) ik->data, ik->len);
-    }
-
-  if (ck || ik)
-    {
-      err = ipsec_call_add_del_callbacks (im, sa, sa_index, 0);
-      if (err)
-	{
-	  clib_error_free (err);
-	  return VNET_API_ERROR_SYSCALL_ERROR_1;
-	}
-    }
 
   return 0;
 }

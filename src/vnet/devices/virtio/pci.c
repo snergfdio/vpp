@@ -557,6 +557,27 @@ virtio_pci_send_ctrl_msg (vlib_main_t * vm, virtio_if_t * vif,
 }
 
 static int
+virtio_pci_enable_gso (vlib_main_t * vm, virtio_if_t * vif)
+{
+  virtio_main_t *vim = &virtio_main;
+  struct virtio_ctrl_msg gso_hdr;
+  virtio_net_ctrl_ack status = VIRTIO_NET_ERR;
+
+  gso_hdr.ctrl.class = VIRTIO_NET_CTRL_GUEST_OFFLOADS;
+  gso_hdr.ctrl.cmd = VIRTIO_NET_CTRL_GUEST_OFFLOADS_SET;
+  gso_hdr.status = VIRTIO_NET_ERR;
+  u64 offloads = VIRTIO_FEATURE (VIRTIO_NET_F_GUEST_CSUM)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_GUEST_TSO4)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_GUEST_TSO6)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_GUEST_UFO);
+  clib_memcpy (gso_hdr.data, &offloads, sizeof (offloads));
+
+  status = virtio_pci_send_ctrl_msg (vm, vif, &gso_hdr, sizeof (offloads));
+  virtio_log_debug (vim, vif, "enable gso");
+  return status;
+}
+
+static int
 virtio_pci_enable_multiqueue (vlib_main_t * vm, virtio_if_t * vif,
 			      u16 num_queues)
 {
@@ -694,20 +715,8 @@ virtio_pci_vring_init (vlib_main_t * vm, virtio_if_t * vif, u16 queue_num)
 
   ASSERT (vring->buffers == 0);
   vec_validate_aligned (vring->buffers, queue_size, CLIB_CACHE_LINE_BYTES);
-  ASSERT (vring->indirect_buffers == 0);
-  vec_validate_aligned (vring->indirect_buffers, queue_size,
-			CLIB_CACHE_LINE_BYTES);
   if (queue_num % 2)
     {
-      u32 n_alloc = 0;
-      do
-	{
-	  if (n_alloc < queue_size)
-	    n_alloc +=
-	      vlib_buffer_alloc (vm, vring->indirect_buffers + n_alloc,
-				 queue_size - n_alloc);
-	}
-      while (n_alloc != queue_size);
       virtio_log_debug (vim, vif, "tx-queue: number %u, size %u", queue_num,
 			queue_size);
     }
@@ -732,8 +741,18 @@ virtio_negotiate_features (vlib_main_t * vm, virtio_if_t * vif,
    * if features are not requested
    * default: all supported features
    */
-  u64 supported_features = VIRTIO_FEATURE (VIRTIO_NET_F_MTU)
+  u64 supported_features = VIRTIO_FEATURE (VIRTIO_NET_F_CSUM)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_GUEST_CSUM)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_CTRL_GUEST_OFFLOADS)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_MTU)
     | VIRTIO_FEATURE (VIRTIO_NET_F_MAC)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_GSO)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_GUEST_TSO4)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_GUEST_TSO6)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_GUEST_UFO)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_HOST_TSO4)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_HOST_TSO6)
+    | VIRTIO_FEATURE (VIRTIO_NET_F_HOST_UFO)
     | VIRTIO_FEATURE (VIRTIO_NET_F_MRG_RXBUF)
     | VIRTIO_FEATURE (VIRTIO_NET_F_STATUS)
     | VIRTIO_FEATURE (VIRTIO_NET_F_CTRL_VQ)
@@ -1187,13 +1206,30 @@ virtio_pci_create_if (vlib_main_t * vm, virtio_pci_create_if_args_t * args)
   else
     vnet_hw_interface_set_flags (vnm, vif->hw_if_index, 0);
 
-  if ((vif->features & VIRTIO_FEATURE (VIRTIO_NET_F_CTRL_VQ)) &&
-      (vif->features & VIRTIO_FEATURE (VIRTIO_NET_F_MQ)))
+  if (vif->features & VIRTIO_FEATURE (VIRTIO_NET_F_CTRL_VQ))
     {
-      if (virtio_pci_enable_multiqueue (vm, vif, vif->max_queue_pairs))
-	virtio_log_warning (vim, vif, "multiqueue is not set");
+      if (vif->features & VIRTIO_FEATURE (VIRTIO_NET_F_CTRL_GUEST_OFFLOADS) &&
+	  args->gso_enabled)
+	{
+	  if (virtio_pci_enable_gso (vm, vif))
+	    {
+	      virtio_log_warning (vim, vif, "gso is not enabled");
+	    }
+	  else
+	    {
+	      vif->gso_enabled = 1;
+	      hw->flags |= VNET_HW_INTERFACE_FLAG_SUPPORTS_GSO;
+	      vnm->interface_main.gso_interface_count++;
+	    }
+	}
+      if (vif->features & VIRTIO_FEATURE (VIRTIO_NET_F_MQ))
+	{
+	  if (virtio_pci_enable_multiqueue (vm, vif, vif->max_queue_pairs))
+	    virtio_log_warning (vim, vif, "multiqueue is not set");
+	}
     }
   return;
+
 
 error:
   virtio_pci_delete_if (vm, vif);
@@ -1224,6 +1260,9 @@ virtio_pci_delete_if (vlib_main_t * vm, virtio_if_t * vif)
 
   virtio_pci_legacy_reset (vm, vif);
 
+  if (vif->gso_enabled)
+    vnm->interface_main.gso_interface_count--;
+
   if (vif->hw_if_index)
     {
       vnet_hw_interface_set_flags (vnm, vif->hw_if_index, 0);
@@ -1246,7 +1285,6 @@ virtio_pci_delete_if (vlib_main_t * vm, virtio_if_t * vif)
 	virtio_free_rx_buffers (vm, vring);
       }
     vec_free (vring->buffers);
-    vec_free (vring->indirect_buffers);
     vlib_physmem_free (vm, vring->desc);
   }
 
@@ -1259,12 +1297,7 @@ virtio_pci_delete_if (vlib_main_t * vm, virtio_if_t * vif)
       {
 	virtio_free_used_desc (vm, vring);
       }
-    if (vring->queue_id % 2)
-      {
-	vlib_buffer_free_no_next (vm, vring->indirect_buffers, vring->size);
-      }
     vec_free (vring->buffers);
-    vec_free (vring->indirect_buffers);
     vlib_physmem_free (vm, vring->desc);
   }
 
