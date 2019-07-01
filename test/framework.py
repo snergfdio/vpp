@@ -5,6 +5,7 @@ import gc
 import sys
 import os
 import select
+import signal
 import unittest
 import tempfile
 import time
@@ -21,7 +22,7 @@ from logging import FileHandler, DEBUG, Formatter
 
 import scapy.compat
 from scapy.packet import Raw
-from hook import StepHook, PollHook, VppDiedError
+import hook as hookmodule
 from vpp_pg_interface import VppPGInterface
 from vpp_sub_interface import VppSubInterface
 from vpp_lo_interface import VppLoInterface
@@ -67,6 +68,36 @@ if os.getenv('TEST_DEBUG', "0") == "1":
   The module provides a set of tools for constructing and running tests and
   representing the results.
 """
+
+
+class VppDiedError(Exception):
+    """ exception for reporting that the subprocess has died."""
+
+    signals_by_value = {v: k for k, v in signal.__dict__.items() if
+                        k.startswith('SIG') and not k.startswith('SIG_')}
+
+    def __init__(self, rv=None, testcase=None, method_name=None):
+        self.rv = rv
+        self.signal_name = None
+        self.testcase = testcase
+        self.method_name = method_name
+
+        try:
+            self.signal_name = VppDiedError.signals_by_value[-rv]
+        except (KeyError, TypeError):
+            pass
+
+        if testcase is None and method_name is None:
+            in_msg = ''
+        else:
+            in_msg = 'running %s.%s ' % (testcase, method_name)
+
+        msg = "VPP subprocess died %sunexpectedly with return code: %d%s." % (
+            in_msg,
+            self.rv,
+            ' [%s]' % self.signal_name if
+            self.signal_name is not None else '')
+        super(VppDiedError, self).__init__(msg)
 
 
 class _PacketInfo(object):
@@ -351,12 +382,13 @@ class VppTestCase(unittest.TestCase):
         print(single_line_delim)
         print("You can debug the VPP using e.g.:")
         if cls.debug_gdbserver:
-            print("gdb " + cls.vpp_bin + " -ex 'target remote localhost:7777'")
+            print("sudo gdb " + cls.vpp_bin +
+                  " -ex 'target remote localhost:7777'")
             print("Now is the time to attach a gdb by running the above "
                   "command, set up breakpoints etc. and then resume VPP from "
                   "within gdb by issuing the 'continue' command")
         elif cls.debug_gdb:
-            print("gdb " + cls.vpp_bin + " -ex 'attach %s'" % cls.vpp.pid)
+            print("sudo gdb " + cls.vpp_bin + " -ex 'attach %s'" % cls.vpp.pid)
             print("Now is the time to attach a gdb by running the above "
                   "command and set up breakpoints etc.")
         print(single_line_delim)
@@ -491,9 +523,9 @@ class VppTestCase(unittest.TestCase):
             cls.vapi = VppPapiProvider(cls.shm_prefix, cls.shm_prefix, cls,
                                        read_timeout)
             if cls.step:
-                hook = StepHook(cls)
+                hook = hookmodule.StepHook(cls)
             else:
-                hook = PollHook(cls)
+                hook = hookmodule.PollHook(cls)
             cls.vapi.register_hook(hook)
             cls.wait_for_stats_socket()
             cls.statistics = VPPStats(socketname=cls.stats_sock)
@@ -518,10 +550,8 @@ class VppTestCase(unittest.TestCase):
                                    "to 'continue' VPP from within gdb?", RED))
                 raise
         except Exception:
-            try:
-                cls.quit()
-            except Exception:
-                pass
+
+            cls.quit()
             raise
 
     @classmethod
@@ -651,7 +681,9 @@ class VppTestCase(unittest.TestCase):
         super(VppTestCase, self).setUp()
         self.reporter.send_keep_alive(self)
         if self.vpp_dead:
-            raise Exception("VPP is dead when setting up the test")
+
+            raise VppDiedError(rv=None, testcase=self.__class__.__name__,
+                               method_name=self._testMethodName)
         self.sleep(.1, "during setUp")
         self.vpp_stdout_deque.append(
             "--- test setUp() for %s.%s(%s) starts here ---\n" %

@@ -7,6 +7,12 @@ from six import moves
 
 from util import Host, mk_ll_addr
 from vpp_papi import mac_ntop
+from ipaddress import IPv4Network
+
+try:
+    text_type = unicode
+except NameError:
+    text_type = str
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -229,7 +235,7 @@ class VppInterface(object):
         self._remote_addr_n = {socket.AF_INET: self.remote_ip4n,
                                socket.AF_INET6: self.remote_ip6n}
 
-        r = self.test.vapi.sw_interface_dump()
+        r = self.test.vapi.sw_interface_dump(sw_if_index=self.sw_if_index)
         for intf in r:
             if intf.sw_if_index == self.sw_if_index:
                 self._name = intf.interface_name.split(b'\0',
@@ -343,14 +349,16 @@ class VppInterface(object):
             suppress=suppress,
             send_unicast=send_unicast)
 
-    # TODO: This should accept ipaddress object.
-    def ip6_ra_prefix(self, address, address_length, is_no=0,
+    def ip6_ra_prefix(self, prefix, is_no=0,
                       off_link=0, no_autoconfig=0, use_default=0):
-        """Configure IPv6 RA suppress on the VPP interface."""
+        """Configure IPv6 RA suppress on the VPP interface.
+
+        prefix can be a string in the format of '<address>/<length_in_bits>'
+        or ipaddress.ipnetwork object (if strict.)"""
+
         self.test.vapi.sw_interface_ip6nd_ra_prefix(
             sw_if_index=self.sw_if_index,
-            prefix={'address': address,
-                    'address_length': address_length},
+            prefix=prefix,
             use_default=use_default,
             off_link=off_link, no_autoconfig=no_autoconfig,
             is_no=is_no)
@@ -406,9 +414,10 @@ class VppInterface(object):
 
     def is_ip4_entry_in_fib_dump(self, dump):
         for i in dump:
-            if i.address == self.local_ip4n and \
-                    i.address_length == self.local_ip4_prefix_len and \
-                    i.table_id == self.ip4_table_id:
+            n = IPv4Network(text_type("%s/%d" % (self.local_ip4,
+                                                 self.local_ip4_prefix_len)))
+            if i.route.prefix == n and \
+               i.route.table_id == self.ip4_table_id:
                 return True
         return False
 
@@ -429,7 +438,7 @@ class VppInterface(object):
             enable)
 
     def query_vpp_config(self):
-        dump = self.test.vapi.sw_interface_dump()
+        dump = self.test.vapi.sw_interface_dump(sw_if_index=self.sw_if_index)
         return self.is_interface_config_in_dump(dump)
 
     def get_interface_config_from_dump(self, dump):

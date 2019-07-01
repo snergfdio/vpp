@@ -32,18 +32,10 @@ session_send_evt_to_thread (void *data, void *args, u32 thread_index,
   session_event_t *evt;
   svm_msg_q_msg_t msg;
   svm_msg_q_t *mq;
-  u32 tries = 0, max_tries;
 
   mq = session_main_get_vpp_event_queue (thread_index);
-  while (svm_msg_q_try_lock (mq))
-    {
-      max_tries = vlib_get_current_process (vlib_get_main ())? 1e6 : 3;
-      if (tries++ == max_tries)
-	{
-	  SESSION_DBG ("failed to enqueue evt");
-	  return -1;
-	}
-    }
+  if (PREDICT_FALSE (svm_msg_q_lock (mq)))
+    return -1;
   if (PREDICT_FALSE (svm_msg_q_ring_is_full (mq, SESSION_MQ_IO_EVT_RING)))
     {
       svm_msg_q_unlock (mq);
@@ -168,6 +160,7 @@ session_alloc (u32 thread_index)
   clib_memset (s, 0, sizeof (*s));
   s->session_index = s - wrk->sessions;
   s->thread_index = thread_index;
+  s->app_index = APP_INVALID_INDEX;
   return s;
 }
 
@@ -452,11 +445,14 @@ u32
 session_tx_fifo_dequeue_drop (transport_connection_t * tc, u32 max_bytes)
 {
   session_t *s = session_get (tc->s_index, tc->thread_index);
+  u32 rv;
 
-  if (svm_fifo_needs_tx_ntf (s->tx_fifo, max_bytes))
+  rv = svm_fifo_dequeue_drop (s->tx_fifo, max_bytes);
+
+  if (svm_fifo_needs_deq_ntf (s->tx_fifo, max_bytes))
     session_dequeue_notify (s);
 
-  return svm_fifo_dequeue_drop (s->tx_fifo, max_bytes);
+  return rv;
 }
 
 static inline int
@@ -553,7 +549,7 @@ session_dequeue_notify (session_t * s)
     return session_notify_subscribers (app_wrk->app_index, s,
 				       s->tx_fifo, SESSION_IO_EVT_TX);
 
-  svm_fifo_clear_tx_ntf (s->tx_fifo);
+  svm_fifo_clear_deq_ntf (s->tx_fifo);
 
   return 0;
 }
@@ -605,8 +601,9 @@ session_main_flush_all_enqueue_events (u8 transport_proto)
   return errors;
 }
 
-int
-session_stream_connect_notify (transport_connection_t * tc, u8 is_fail)
+static inline int
+session_stream_connect_notify_inline (transport_connection_t * tc, u8 is_fail,
+				      session_state_t opened_state)
 {
   u32 opaque = 0, new_ti, new_si;
   app_worker_t *app_wrk;
@@ -649,6 +646,10 @@ session_stream_connect_notify (transport_connection_t * tc, u8 is_fail)
       return -1;
     }
 
+  s = session_get (new_si, new_ti);
+  s->session_state = opened_state;
+  session_lookup_add_connection (tc, session_handle (s));
+
   if (app_worker_connect_notify (app_wrk, s, opaque))
     {
       s = session_get (new_si, new_ti);
@@ -656,11 +657,21 @@ session_stream_connect_notify (transport_connection_t * tc, u8 is_fail)
       return -1;
     }
 
-  s = session_get (new_si, new_ti);
-  s->session_state = SESSION_STATE_READY;
-  session_lookup_add_connection (tc, session_handle (s));
-
   return 0;
+}
+
+int
+session_stream_connect_notify (transport_connection_t * tc, u8 is_fail)
+{
+  return session_stream_connect_notify_inline (tc, is_fail,
+					       SESSION_STATE_READY);
+}
+
+int
+session_ho_stream_connect_notify (transport_connection_t * tc, u8 is_fail)
+{
+  return session_stream_connect_notify_inline (tc, is_fail,
+					       SESSION_STATE_OPENED);
 }
 
 typedef struct _session_switch_pool_args
@@ -877,13 +888,13 @@ session_stream_accept_notify (transport_connection_t * tc)
  */
 int
 session_stream_accept (transport_connection_t * tc, u32 listener_index,
-		       u8 notify)
+		       u32 thread_index, u8 notify)
 {
   session_t *s;
   int rv;
 
   s = session_alloc_for_connection (tc);
-  s->listener_index = listener_index;
+  s->listener_handle = ((u64) thread_index << 32) | (u64) listener_index;
   s->session_state = SESSION_STATE_CREATED;
 
   if ((rv = app_worker_init_accepted (s)))
@@ -970,6 +981,8 @@ session_open_vc (u32 app_wrk_index, session_endpoint_t * rmt, u32 opaque)
    * thing but better than allocating a separate half-open pool.
    */
   tc->s_index = opaque;
+  if (transport_half_open_has_fifos (rmt->transport_proto))
+    return session_ho_stream_connect_notify (tc, 0 /* is_fail */ );
   return 0;
 }
 
@@ -1287,7 +1300,8 @@ session_register_transport (transport_proto_t transport_proto,
   /* *INDENT-ON* */
 
   smm->session_type_to_next[session_type] = next_index;
-  smm->session_tx_fns[session_type] = session_tx_fns[vft->tx_type];
+  smm->session_tx_fns[session_type] =
+    session_tx_fns[vft->transport_options.tx_type];
 }
 
 transport_connection_t *

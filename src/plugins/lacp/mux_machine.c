@@ -96,8 +96,8 @@ lacp_attach_mux_to_aggregator (vlib_main_t * vm, slave_if_t * sif)
 int
 lacp_mux_action_detached (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
   lacp_main_t *lm = &lacp_main;
 
   lacp_detach_mux_from_aggregator (vm, sif);
@@ -121,8 +121,8 @@ lacp_mux_action_detached (void *p1, void *p2)
 int
 lacp_mux_action_attached (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
   lacp_main_t *lm = &lacp_main;
 
   lacp_attach_mux_to_aggregator (vm, sif);
@@ -147,8 +147,8 @@ lacp_mux_action_attached (void *p1, void *p2)
 int
 lacp_mux_action_waiting (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
   lacp_main_t *lm = &lacp_main;
 
   if (!lacp_timer_is_running (sif->wait_while_timer))
@@ -169,8 +169,8 @@ lacp_mux_action_waiting (void *p1, void *p2)
 int
 lacp_mux_action_collecting_distributing (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
   lacp_main_t *lm = &lacp_main;
 
   sif->actor.state |= LACP_STATE_SYNCHRONIZATION | LACP_STATE_COLLECTING |
@@ -198,8 +198,7 @@ format_mux_event (u8 * s, va_list * args)
     {.str = NULL}
   };
   int e = va_arg (*args, int);
-  lacp_event_struct *event_entry =
-    (lacp_event_struct *) & lacp_mux_event_array;
+  lacp_event_struct *event_entry = lacp_mux_event_array;
 
   if (e >= (sizeof (lacp_mux_event_array) / sizeof (*event_entry)))
     s = format (s, "Bad event %d", e);
@@ -213,11 +212,26 @@ void
 lacp_mux_debug_func (slave_if_t * sif, int event, int state,
 		     lacp_fsm_state_t * transition)
 {
-  clib_warning ("%U-MUX: event %U, old state %U, new state %U",
-		format_vnet_sw_if_index_name, vnet_get_main (),
-		sif->sw_if_index, format_mux_event,
-		event, format_mux_sm_state, state, format_mux_sm_state,
-		transition->next_state);
+  vlib_worker_thread_t *w = vlib_worker_threads + os_get_thread_index ();
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (e) =
+    {
+      .format = "%s",
+      .format_args = "T4",
+    };
+  /* *INDENT-ON* */
+  struct
+  {
+    u32 event;
+  } *ed = 0;
+
+  ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e, w->elog_track);
+  ed->event =
+    elog_string (&vlib_global_main.elog_main, "%U-MUX: %U, %U->%U%c",
+		 format_vnet_sw_if_index_name, vnet_get_main (),
+		 sif->sw_if_index, format_mux_event, event,
+		 format_mux_sm_state, state, format_mux_sm_state,
+		 transition->next_state, 0);
 }
 
 void

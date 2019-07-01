@@ -240,8 +240,8 @@ lacp_set_port_moved (vlib_main_t * vm, slave_if_t * sif, u8 val)
 int
 lacp_rx_action_initialize (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
 
   lacp_set_port_unselected (vm, sif);
   lacp_record_default (sif);
@@ -257,8 +257,8 @@ lacp_rx_action_initialize (void *p1, void *p2)
 int
 lacp_rx_action_port_disabled (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
 
   sif->partner.state &= ~LACP_STATE_SYNCHRONIZATION;
   if (sif->port_moved)
@@ -282,8 +282,8 @@ lacp_rx_action_port_disabled (void *p1, void *p2)
 int
 lacp_rx_action_expired (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
   u8 timer_expired;
   lacp_main_t *lm = &lacp_main;
 
@@ -310,8 +310,8 @@ lacp_rx_action_expired (void *p1, void *p2)
 int
 lacp_rx_action_lacp_disabled (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
 
   lacp_set_port_unselected (vm, sif);
   lacp_record_default (sif);
@@ -324,8 +324,8 @@ lacp_rx_action_lacp_disabled (void *p1, void *p2)
 int
 lacp_rx_action_defaulted (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
 
   lacp_stop_timer (&sif->current_while_timer);
   lacp_update_default_selected (vm, sif);
@@ -363,8 +363,8 @@ lacp_port_is_moved (vlib_main_t * vm, slave_if_t * sif)
 int
 lacp_rx_action_current (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
   lacp_main_t *lm = &lacp_main;
 
   lacp_update_selected (vm, sif);
@@ -389,8 +389,7 @@ format_rx_event (u8 * s, va_list * args)
     {.str = NULL}
   };
   int e = va_arg (*args, int);
-  lacp_event_struct *event_entry =
-    (lacp_event_struct *) & lacp_rx_event_array;
+  lacp_event_struct *event_entry = lacp_rx_event_array;
 
   if (e >= (sizeof (lacp_rx_event_array) / sizeof (*event_entry)))
     s = format (s, "Bad event %d", e);
@@ -404,11 +403,25 @@ void
 lacp_rx_debug_func (slave_if_t * sif, int event, int state,
 		    lacp_fsm_state_t * transition)
 {
-  clib_warning ("%U-RX: event %U, old state %U, new state %U",
-		format_vnet_sw_if_index_name, vnet_get_main (),
-		sif->sw_if_index, format_rx_event,
-		event, format_rx_sm_state, state, format_rx_sm_state,
-		transition->next_state);
+  vlib_worker_thread_t *w = vlib_worker_threads + os_get_thread_index ();
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (e) =
+    {
+      .format = "%s",
+      .format_args = "T4",
+    };
+  /* *INDENT-ON* */
+  struct
+  {
+    u32 event;
+  } *ed = 0;
+
+  ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e, w->elog_track);
+  ed->event = elog_string (&vlib_global_main.elog_main, "%U-RX: %U, %U->%U%c",
+			   format_vnet_sw_if_index_name, vnet_get_main (),
+			   sif->sw_if_index, format_rx_event, event,
+			   format_rx_sm_state, state, format_rx_sm_state,
+			   transition->next_state, 0);
 }
 
 void

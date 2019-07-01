@@ -288,16 +288,22 @@ transport_protocol_get_vft (transport_proto_t transport_proto)
   return &tp_vfts[transport_proto];
 }
 
+u8
+transport_half_open_has_fifos (transport_proto_t tp)
+{
+  return tp_vfts[tp].transport_options.half_open_has_fifos;
+}
+
 transport_service_type_t
 transport_protocol_service_type (transport_proto_t tp)
 {
-  return tp_vfts[tp].service_type;
+  return tp_vfts[tp].transport_options.service_type;
 }
 
 transport_tx_fn_type_t
 transport_protocol_tx_fn_type (transport_proto_t tp)
 {
-  return tp_vfts[tp].tx_type;
+  return tp_vfts[tp].transport_options.tx_type;
 }
 
 void
@@ -334,7 +340,7 @@ transport_stop_listen (transport_proto_t tp, u32 conn_index)
 u8
 transport_protocol_is_cl (transport_proto_t tp)
 {
-  return (tp_vfts[tp].service_type == TRANSPORT_SERVICE_CL);
+  return (tp_vfts[tp].transport_options.service_type == TRANSPORT_SERVICE_CL);
 }
 
 always_inline void
@@ -634,6 +640,12 @@ spacer_set_pace_rate (spacer_t * pacer, u64 rate_bytes_per_sec)
   pacer->tokens_per_period = rate_bytes_per_sec / transport_pacer_period;
 }
 
+static inline u64
+spacer_pace_rate (spacer_t * pacer)
+{
+  return pacer->tokens_per_period * transport_pacer_period;
+}
+
 void
 transport_connection_tx_pacer_reset (transport_connection_t * tc,
 				     u32 rate_bytes_per_sec,
@@ -688,6 +700,12 @@ transport_connection_snd_space (transport_connection_t * tc, u64 time_now,
       snd_space = snd_space - snd_space % mss;
     }
   return snd_space;
+}
+
+u64
+transport_connection_tx_pacer_rate (transport_connection_t * tc)
+{
+  return spacer_pace_rate (&tc->pacer);
 }
 
 void

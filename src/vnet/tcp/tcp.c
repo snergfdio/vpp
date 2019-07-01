@@ -102,6 +102,14 @@ tcp_cc_algo_get (tcp_cc_algorithm_type_e type)
   return &tm->cc_algos[type];
 }
 
+tcp_cc_algorithm_type_e
+tcp_cc_algo_new_type (const tcp_cc_algorithm_t * vft)
+{
+  tcp_main_t *tm = vnet_get_tcp_main ();
+  tcp_cc_algo_register (++tm->cc_last_type, vft);
+  return tm->cc_last_type;
+}
+
 static u32
 tcp_connection_bind (u32 session_index, transport_endpoint_t * lcl)
 {
@@ -261,6 +269,9 @@ tcp_connection_cleanup (tcp_connection_t * tc)
       tcp_cc_cleanup (tc);
       vec_free (tc->snd_sacks);
       vec_free (tc->snd_sacks_fl);
+
+      if (tc->flags & TCP_CONN_RATE_SAMPLE)
+	tcp_bt_cleanup (tc);
 
       /* Poison the entry */
       if (CLIB_DEBUG > 0)
@@ -654,6 +665,9 @@ tcp_connection_init_vars (tcp_connection_t * tc)
   if (transport_connection_is_tx_paced (&tc->connection)
       || tcp_main.tx_pacing)
     tcp_enable_pacing (tc);
+
+  if (tc->flags & TCP_CONN_RATE_SAMPLE)
+    tcp_bt_init (tc);
 }
 
 static int
@@ -1213,8 +1227,10 @@ const static transport_proto_vft_t tcp_proto = {
   .format_connection = format_tcp_session,
   .format_listener = format_tcp_listener_session,
   .format_half_open = format_tcp_half_open_session,
-  .tx_type = TRANSPORT_TX_PEEK,
-  .service_type = TRANSPORT_SERVICE_VC,
+  .transport_options = {
+    .tx_type = TRANSPORT_TX_PEEK,
+    .service_type = TRANSPORT_SERVICE_VC,
+  },
 };
 /* *INDENT-ON* */
 
@@ -1499,7 +1515,7 @@ tcp_main_enable (vlib_main_t * vm)
   tcp_initialize_iss_seed (tm);
 
   tm->bytes_per_buffer = vlib_buffer_get_default_data_size (vm);
-
+  tm->cc_last_type = TCP_CC_LAST;
   return error;
 }
 
@@ -1559,6 +1575,7 @@ tcp_init (vlib_main_t * vm)
   tm->tx_pacing = 1;
   tm->cc_algo = TCP_CC_NEWRENO;
   tm->default_mtu = 1460;
+  tm->initial_cwnd_multiplier = 0;
   return 0;
 }
 
@@ -1627,6 +1644,9 @@ tcp_config_fn (vlib_main_t * vm, unformat_input_t * input)
 			 &tm->max_rx_fifo))
 	;
       else if (unformat (input, "mtu %d", &tm->default_mtu))
+	;
+      else if (unformat (input, "initial-cwnd-multiplier %d",
+			 &tm->initial_cwnd_multiplier))
 	;
       else if (unformat (input, "no-tx-pacing"))
 	tm->tx_pacing = 0;

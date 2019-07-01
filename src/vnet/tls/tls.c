@@ -201,7 +201,7 @@ tls_notify_app_accept (tls_ctx_t * ctx)
   app_session->app_wrk_index = ctx->parent_app_wrk_index;
   app_session->connection_index = ctx->tls_ctx_handle;
   app_session->session_type = app_listener->session_type;
-  app_session->listener_index = app_listener->session_index;
+  app_session->listener_handle = listen_session_get_handle (app_listener);
   app_session->session_state = SESSION_STATE_ACCEPTING;
 
   if ((rv = app_worker_init_accepted (app_session)))
@@ -391,7 +391,8 @@ tls_session_accept_callback (session_t * tls_session)
   tls_ctx_t *lctx, *ctx;
   u32 ctx_handle;
 
-  tls_listener = listen_session_get (tls_session->listener_index);
+  tls_listener =
+    listen_session_get_from_handle (tls_session->listener_handle);
   lctx = tls_listener_ctx_get (tls_listener->opaque);
 
   ctx_handle = tls_ctx_alloc (lctx->tls_ctx_engine);
@@ -756,7 +757,7 @@ tls_transport_listener_endpoint_get (u32 ctx_handle,
 }
 
 /* *INDENT-OFF* */
-const static transport_proto_vft_t tls_proto = {
+static const transport_proto_vft_t tls_proto = {
   .connect = tls_connect,
   .close = tls_disconnect,
   .start_listen = tls_start_listen,
@@ -764,13 +765,15 @@ const static transport_proto_vft_t tls_proto = {
   .get_connection = tls_connection_get,
   .get_listener = tls_listener_get,
   .custom_tx = tls_custom_tx_callback,
-  .tx_type = TRANSPORT_TX_INTERNAL,
-  .service_type = TRANSPORT_SERVICE_APP,
   .format_connection = format_tls_connection,
   .format_half_open = format_tls_half_open,
   .format_listener = format_tls_listener,
   .get_transport_endpoint = tls_transport_endpoint_get,
   .get_transport_listener_endpoint = tls_transport_listener_endpoint_get,
+  .transport_options = {
+    .tx_type = TRANSPORT_TX_INTERNAL,
+    .service_type = TRANSPORT_SERVICE_APP,
+  },
 };
 /* *INDENT-ON* */
 

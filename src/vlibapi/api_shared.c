@@ -97,7 +97,9 @@ vl_msg_api_trace (api_main_t * am, vl_api_trace_t * tp, void *msg)
       old_trace = tp->traces + tp->curindex++;
       if (tp->curindex == tp->nitems)
 	tp->curindex = 0;
-      vec_free (*old_trace);
+      /* Reuse the trace record, may save some memory allocator traffic */
+      msg_copy = *old_trace;
+      vec_reset_length (msg_copy);
       this_trace = old_trace;
     }
 
@@ -467,6 +469,7 @@ vl_msg_api_handler_with_vm_node (api_main_t * am,
   u16 id = ntohs (*((u16 *) the_msg));
   u8 *(*handler) (void *, void *, void *);
   u8 *(*print_fp) (void *, void *);
+  int is_mp_safe = 1;
 
   if (PREDICT_FALSE (vm->elog_trace_api_messages))
     {
@@ -508,14 +511,15 @@ vl_msg_api_handler_with_vm_node (api_main_t * am,
 	      (*print_fp) (the_msg, vm);
 	    }
 	}
+      is_mp_safe = am->is_mp_safe[id];
 
-      if (!am->is_mp_safe[id])
+      if (!is_mp_safe)
 	{
 	  vl_msg_api_barrier_trace_context (am->msg_names[id]);
 	  vl_msg_api_barrier_sync ();
 	}
       (*handler) (the_msg, vm, node);
-      if (!am->is_mp_safe[id])
+      if (!is_mp_safe)
 	vl_msg_api_barrier_release ();
     }
   else
@@ -533,14 +537,22 @@ vl_msg_api_handler_with_vm_node (api_main_t * am,
   if (PREDICT_FALSE (vm->elog_trace_api_messages))
     {
       /* *INDENT-OFF* */
-      ELOG_TYPE_DECLARE (e) = {
-        .format = "api-msg-done: %s",
-        .format_args = "T4",
-      };
+      ELOG_TYPE_DECLARE (e) =
+        {
+          .format = "api-msg-done(%s): %s",
+          .format_args = "t4T4",
+          .n_enum_strings = 2,
+          .enum_strings =
+          {
+            "barrier",
+            "mp-safe",
+          }
+        };
       /* *INDENT-ON* */
 
       struct
       {
+	u32 barrier;
 	u32 c;
       } *ed;
       ed = ELOG_DATA (&vm->elog_main, e);
@@ -548,6 +560,7 @@ vl_msg_api_handler_with_vm_node (api_main_t * am,
 	ed->c = elog_id_for_msg_name (vm, (const char *) am->msg_names[id]);
       else
 	ed->c = elog_id_for_msg_name (vm, "BOGUS");
+      ed->barrier = is_mp_safe;
     }
 }
 
@@ -979,6 +992,46 @@ vl_msg_pop_heap (void *oldheap)
   pthread_mutex_unlock (&am->vlib_rp->mutex);
 }
 
+int
+vl_api_to_api_string (u32 len, const char *buf, vl_api_string_t * str)
+{
+  clib_memcpy_fast (str->buf, buf, len);
+  str->length = htonl (len);
+  return len + sizeof (u32);
+}
+
+int
+vl_api_vec_to_api_string (const u8 * vec, vl_api_string_t * str)
+{
+  u32 len = vec_len (vec);
+  clib_memcpy (str->buf, vec, len);
+  str->length = htonl (len);
+  return len + sizeof (u32);
+}
+
+/* Return a pointer to the API string (not nul terminated */
+u8 *
+vl_api_from_api_string (vl_api_string_t * astr)
+{
+  return astr->buf;
+}
+
+u32
+vl_api_string_len (vl_api_string_t * astr)
+{
+  return ntohl (astr->length);
+}
+
+/*
+ * Returns a new vector. Remember to free it after use.
+ */
+u8 *
+vl_api_from_api_to_vec (vl_api_string_t * astr)
+{
+  u8 *v = 0;
+  vec_add (v, astr->buf, ntohl (astr->length));
+  return v;
+}
 
 /*
  * fd.io coding-style-patch-verification: ON

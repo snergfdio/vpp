@@ -38,8 +38,8 @@ lacp_machine_t lacp_tx_machine = {
 int
 lacp_tx_action_transmit (void *p1, void *p2)
 {
-  vlib_main_t *vm = (vlib_main_t *) p1;
-  slave_if_t *sif = (slave_if_t *) p2;
+  vlib_main_t *vm = p1;
+  slave_if_t *sif = p2;
   lacp_main_t *lm = &lacp_main;
   f64 now = vlib_time_now (lm->vlib_main);
 
@@ -70,8 +70,7 @@ format_tx_event (u8 * s, va_list * args)
     {.str = NULL}
   };
   int e = va_arg (*args, int);
-  lacp_event_struct *event_entry =
-    (lacp_event_struct *) & lacp_tx_event_array;
+  lacp_event_struct *event_entry = lacp_tx_event_array;
 
   if (e >= (sizeof (lacp_tx_event_array) / sizeof (*event_entry)))
     s = format (s, "Bad event %d", e);
@@ -85,11 +84,25 @@ void
 lacp_tx_debug_func (slave_if_t * sif, int event, int state,
 		    lacp_fsm_state_t * transition)
 {
-  clib_warning ("%U-TX: event %U, old state %U, new state %U",
-		format_vnet_sw_if_index_name, vnet_get_main (),
-		sif->sw_if_index, format_tx_event,
-		event, format_tx_sm_state, state, format_tx_sm_state,
-		transition->next_state);
+  vlib_worker_thread_t *w = vlib_worker_threads + os_get_thread_index ();
+  /* *INDENT-OFF* */
+  ELOG_TYPE_DECLARE (e) =
+    {
+      .format = "%s",
+      .format_args = "T4",
+    };
+  /* *INDENT-ON* */
+  struct
+  {
+    u32 event;
+  } *ed = 0;
+
+  ed = ELOG_TRACK_DATA (&vlib_global_main.elog_main, e, w->elog_track);
+  ed->event = elog_string (&vlib_global_main.elog_main, "%U-TX: %U, %U->%U%c",
+			   format_vnet_sw_if_index_name, vnet_get_main (),
+			   sif->sw_if_index, format_tx_event, event,
+			   format_tx_sm_state, state, format_tx_sm_state,
+			   transition->next_state, 0);
 }
 
 void

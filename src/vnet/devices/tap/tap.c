@@ -208,7 +208,7 @@ tap_create_if (vlib_main_t * vm, tap_create_if_args_t * args)
   vif->ifindex = if_nametoindex (ifr.ifr_ifrn.ifrn_name);
 
   if (!args->host_if_name)
-    args->host_if_name = (u8 *) ifr.ifr_ifrn.ifrn_name;
+    args->host_if_name = format (0, "%s", ifr.ifr_ifrn.ifrn_name);
 
   unsigned int offload = 0;
   hdrsz = sizeof (struct virtio_net_hdr_v1);
@@ -361,6 +361,29 @@ tap_create_if (vlib_main_t * vm, tap_create_if_args_t * args)
 	}
     }
 
+  if (args->host_mtu_set)
+    {
+      args->error =
+	vnet_netlink_set_link_mtu (vif->ifindex, args->host_mtu_size);
+      if (args->error)
+	{
+	  args->rv = VNET_API_ERROR_NETLINK_ERROR;
+	  goto error;
+	}
+    }
+  else if (tm->host_mtu_size != 0)
+    {
+      args->error =
+	vnet_netlink_set_link_mtu (vif->ifindex, tm->host_mtu_size);
+      if (args->error)
+	{
+	  args->rv = VNET_API_ERROR_NETLINK_ERROR;
+	  goto error;
+	}
+      args->host_mtu_set = 1;
+      args->host_mtu_size = tm->host_mtu_size;
+    }
+
   /* Set vhost memory table */
   i = sizeof (struct vhost_memory) + sizeof (struct vhost_memory_region);
   vhost_mem = clib_mem_alloc (i);
@@ -396,6 +419,7 @@ tap_create_if (vlib_main_t * vm, tap_create_if_args_t * args)
   args->host_namespace = 0;
   vif->host_bridge = args->host_bridge;
   args->host_bridge = 0;
+  vif->host_mtu_size = args->host_mtu_size;
   clib_memcpy (vif->host_mac_addr, args->host_mac_addr, 6);
   vif->host_ip4_prefix_len = args->host_ip4_prefix_len;
   vif->host_ip6_prefix_len = args->host_ip6_prefix_len;
@@ -522,6 +546,10 @@ tap_delete_if (vlib_main_t * vm, u32 sw_if_index)
   vec_free (vif->rxq_vrings);
   vec_free (vif->txq_vrings);
 
+  vec_free (vif->host_if_name);
+  vec_free (vif->net_ns);
+  vec_free (vif->host_bridge);
+
   tm->tap_ids = clib_bitmap_set (tm->tap_ids, vif->id, 0);
   clib_memset (vif, 0, sizeof (*vif));
   pool_put (mm->interfaces, vif);
@@ -627,6 +655,7 @@ tap_dump_ifs (tap_interface_details_t ** out_tapids)
     if (vif->host_ip6_prefix_len)
       clib_memcpy(tapid->host_ip6_addr, &vif->host_ip6_addr, 16);
     tapid->host_ip6_prefix_len = vif->host_ip6_prefix_len;
+    tapid->host_mtu_size = vif->host_mtu_size;
   );
   /* *INDENT-ON* */
 
@@ -636,6 +665,26 @@ tap_dump_ifs (tap_interface_details_t ** out_tapids)
 }
 
 static clib_error_t *
+tap_mtu_config (vlib_main_t * vm, unformat_input_t * input)
+{
+  tap_main_t *tm = &tap_main;
+
+  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
+    {
+      if (unformat (input, "host-mtu %d", &tm->host_mtu_size))
+	;
+      else
+	return clib_error_return (0, "unknown input `%U'",
+				  format_unformat_error, input);
+    }
+
+  return 0;
+}
+
+/* tap { host-mtu <size> } configuration. */
+VLIB_CONFIG_FUNCTION (tap_mtu_config, "tap");
+
+static clib_error_t *
 tap_init (vlib_main_t * vm)
 {
   tap_main_t *tm = &tap_main;
@@ -643,6 +692,8 @@ tap_init (vlib_main_t * vm)
 
   tm->log_default = vlib_log_register_class ("tap", 0);
   vlib_log_debug (tm->log_default, "initialized");
+
+  tm->host_mtu_size = 0;
 
   return error;
 }

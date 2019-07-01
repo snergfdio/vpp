@@ -19,6 +19,13 @@
 #include <vnet/vnet.h>
 #include <vnet/session/transport_types.h>
 
+typedef struct _transport_options_t
+{
+  transport_tx_fn_type_t tx_type;
+  transport_service_type_t service_type;
+  u8 half_open_has_fifos;
+} transport_options_t;
+
 /*
  * Transport protocol virtual function table
  */
@@ -74,8 +81,7 @@ typedef struct _transport_proto_vft
   /*
    * Properties
    */
-  transport_tx_fn_type_t tx_type;
-  transport_service_type_t service_type;
+  transport_options_t transport_options;
 } transport_proto_vft_t;
 /* *INDENT-ON* */
 
@@ -193,8 +199,23 @@ void transport_connection_tx_pacer_update (transport_connection_t * tc,
 u32 transport_connection_snd_space (transport_connection_t * tc,
 				    u64 time_now, u16 mss);
 
+/**
+ * Get tx pacer max burst
+ *
+ * @param tc		transport connection
+ * @param time_now	current cpu time
+ * @return		max burst for connection
+ */
 u32 transport_connection_tx_pacer_burst (transport_connection_t * tc,
 					 u64 time_now);
+
+/**
+ * Get tx pacer current rate
+ *
+ * @param tc		transport connection
+ * @return		rate for connection in bytes/s
+ */
+u64 transport_connection_tx_pacer_rate (transport_connection_t * tc);
 
 /**
  * Initialize period for tx pacers

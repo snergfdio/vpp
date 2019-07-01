@@ -75,7 +75,7 @@ typedef enum
 } ip46_type_t;
 
 /* *INDENT-OFF* */
-typedef CLIB_PACKED (union {
+typedef CLIB_PACKED (union ip46_address_t_ {
   struct {
     u32 pad[3];
     ip4_address_t ip4;
@@ -94,6 +94,21 @@ typedef CLIB_PACKED (union {
 #define ip46_address_is_equal(a1, a2)	(((a1)->as_u64[0] == (a2)->as_u64[0]) \
                                          && ((a1)->as_u64[1] == (a2)->as_u64[1]))
 #define ip46_address_initializer {{{ 0 }}}
+
+static_always_inline int
+ip46_address_is_equal_v4 (const ip46_address_t * ip46,
+			  const ip4_address_t * ip4)
+{
+  return (ip46->ip4.as_u32 == ip4->as_u32);
+}
+
+static_always_inline int
+ip46_address_is_equal_v6 (const ip46_address_t * ip46,
+			  const ip6_address_t * ip6)
+{
+  return ((ip46->ip6.as_u64[0] == ip6->as_u64[0]) &&
+	  (ip46->ip6.as_u64[1] == ip6->as_u64[1]));
+}
 
 static_always_inline void
 ip46_address_copy (ip46_address_t * dst, const ip46_address_t * src)
@@ -208,23 +223,6 @@ ip6_set_solicited_node_multicast_address (ip6_address_t * a, u32 id)
   ASSERT ((id >> 24) == 0);
   id |= 0xff << 24;
   a->as_u32[3] = clib_host_to_net_u32 (id);
-}
-
-always_inline void
-ip6_link_local_address_from_ethernet_address (ip6_address_t * a,
-					      const u8 * ethernet_address)
-{
-  a->as_u64[0] = a->as_u64[1] = 0;
-  a->as_u16[0] = clib_host_to_net_u16 (0xfe80);
-  /* Always set locally administered bit (6). */
-  a->as_u8[0x8] = ethernet_address[0] | (1 << 6);
-  a->as_u8[0x9] = ethernet_address[1];
-  a->as_u8[0xa] = ethernet_address[2];
-  a->as_u8[0xb] = 0xff;
-  a->as_u8[0xc] = 0xfe;
-  a->as_u8[0xd] = ethernet_address[3];
-  a->as_u8[0xe] = ethernet_address[4];
-  a->as_u8[0xf] = ethernet_address[5];
 }
 
 always_inline void

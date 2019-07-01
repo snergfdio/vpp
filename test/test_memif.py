@@ -9,6 +9,7 @@ from framework import VppTestCase, VppTestRunner, running_extended_tests
 from remote_test import RemoteClass, RemoteVppTestCase
 from vpp_memif import MEMIF_MODE, MEMIF_ROLE, remove_all_memif_vpp_config, \
     VppSocketFilename, VppMemif
+from vpp_ip_route import VppIpRoute, VppRoutePath
 
 
 class TestMemif(VppTestCase):
@@ -51,7 +52,7 @@ class TestMemif(VppTestCase):
         return False
 
     def test_memif_socket_filename_add_del(self):
-        """ Memif socket filenale add/del """
+        """ Memif socket filename add/del """
 
         # dump default socket filename
         dump = self.vapi.memif_socket_filename_dump()
@@ -225,6 +226,7 @@ class TestMemif(VppTestCase):
 
     def test_memif_ping(self):
         """ Memif ping """
+
         memif = VppMemif(self, MEMIF_ROLE.SLAVE,  MEMIF_MODE.ETHERNET)
 
         remote_socket = VppSocketFilename(self.remote_test, 1,
@@ -247,12 +249,11 @@ class TestMemif(VppTestCase):
         self.assertTrue(remote_memif.wait_for_link_up(5))
 
         # add routing to remote vpp
-        dst_addr = socket.inet_pton(socket.AF_INET, self.pg0._local_ip4_subnet)
-        dst_addr_len = 24
-        next_hop_addr = socket.inet_pton(socket.AF_INET, memif.ip4_addr)
-        self.remote_test.vapi.ip_add_del_route(dst_address=dst_addr,
-                                               dst_address_length=dst_addr_len,
-                                               next_hop_address=next_hop_addr)
+        route = VppIpRoute(self.remote_test, self.pg0._local_ip4_subnet, 24,
+                           [VppRoutePath(memif.ip4_addr, 0xffffffff)],
+                           register=False)
+
+        route.add_vpp_config()
 
         # create ICMP echo-request from local pg to remote memif
         packet_num = 10
@@ -266,6 +267,8 @@ class TestMemif(VppTestCase):
         for c in capture:
             self._verify_icmp(self.pg0, remote_memif, c, seq)
             seq += 1
+
+        route.remove_vpp_config()
 
 
 if __name__ == '__main__':

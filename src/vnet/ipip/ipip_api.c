@@ -150,7 +150,9 @@ vl_api_ipip_tunnel_dump_t_handler (vl_api_ipip_tunnel_dump_t * mp)
     {
     /* *INDENT-OFF* */
     pool_foreach(t, gm->tunnels,
-                 ({ send_ipip_tunnel_details(t, reg, mp->context); }));
+    ({
+      send_ipip_tunnel_details(t, reg, mp->context);
+    }));
     /* *INDENT-ON* */
     }
   else
@@ -178,9 +180,9 @@ vl_api_ipip_6rd_add_tunnel_t_handler (vl_api_ipip_6rd_add_tunnel_t * mp)
     }
   else
     {
-      rv = sixrd_add_tunnel ((ip6_address_t *) & mp->ip6_prefix.prefix,
+      rv = sixrd_add_tunnel ((ip6_address_t *) & mp->ip6_prefix.address,
 			     mp->ip6_prefix.len,
-			     (ip4_address_t *) & mp->ip4_prefix.prefix,
+			     (ip4_address_t *) & mp->ip4_prefix.address,
 			     mp->ip4_prefix.len,
 			     (ip4_address_t *) & mp->ip4_src,
 			     mp->security_check,

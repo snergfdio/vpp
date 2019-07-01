@@ -772,11 +772,14 @@ class TestExceptionPuntSocket(TestPuntSocket):
         punts = self.vapi.punt_socket_dump(type=pt_ex)
         self.assertEqual(len(punts), 0)
 
-    def verify_esp_pkts(self, rxs, n_sent, spi):
+    def verify_esp_pkts(self, rxs, n_sent, spi, has_udp):
         self.assertEqual(len(rxs), n_sent)
         for rx in rxs:
+            self.assertTrue(rx.haslayer(IP))
             self.assertTrue(rx.haslayer(ESP))
             self.assertEqual(rx[ESP].spi, spi)
+            if has_udp:
+                self.assertTrue(rx.haslayer(UDP))
 
     def test_traffic(self):
         """ Punt socket traffic """
@@ -791,7 +794,7 @@ class TestExceptionPuntSocket(TestPuntSocket):
         }
 
         #
-        # we need an IPSec tunnel for this to work otherwise ESP gets dropped
+        # we need an IPSec tunnels for this to work otherwise ESP gets dropped
         # due to unknown IP proto
         #
         VppIpsecTunInterface(self, self.pg0, 1000, 1000,
@@ -803,14 +806,25 @@ class TestExceptionPuntSocket(TestPuntSocket):
                               IPSEC_API_INTEG_ALG_SHA1_96),
                              "0123456701234567",
                              "0123456701234567").add_vpp_config()
+        VppIpsecTunInterface(self, self.pg0, 1001, 1001,
+                             (VppEnum.vl_api_ipsec_crypto_alg_t.
+                              IPSEC_API_CRYPTO_ALG_AES_CBC_128),
+                             "0123456701234567",
+                             "0123456701234567",
+                             (VppEnum.vl_api_ipsec_integ_alg_t.
+                              IPSEC_API_INTEG_ALG_SHA1_96),
+                             "0123456701234567",
+                             "0123456701234567",
+                             udp_encap=True).add_vpp_config()
 
         #
         # we're dealing with IPSec tunnels punting for no-such-tunnel
         # adn SPI=0
         #
         cfgs = dict()
-        cfgs['ipsec4-no-such-tunnel'] = {'spi': 99}
-        cfgs['ipsec4-spi-0'] = {'spi': 0}
+        cfgs['ipsec4-no-such-tunnel'] = {'spi': 99, 'udp': False}
+        cfgs['ipsec4-spi-0'] = {'spi': 0, 'udp': False}
+        cfgs['ipsec4-spi-o-udp-0'] = {'spi': 0, 'udp': True}
 
         #
         # find the VPP ID for these punt exception reasin
@@ -826,22 +840,28 @@ class TestExceptionPuntSocket(TestPuntSocket):
                     break
 
         #
-        # create packet streams and configure a punt sockets
+        # configure punt sockets
         #
         for cfg in cfgs.values():
-            pkt = (Ether(src=self.pg0.remote_mac,
-                         dst=self.pg0.local_mac) /
-                   IP(src=self.pg0.remote_ip4, dst=self.pg0.local_ip4) /
-                   ESP(spi=cfg['spi'], seq=3) /
-                   Raw('\xa5' * 100))
-            cfg['pkts'] = pkt * self.nr_packets
-
             cfg['sock'] = self.socket_client_create(b"%s/socket_%d" % (
                 six.ensure_binary(self.tempdir), cfg['id']))
             self.vapi.punt_socket_register(
                 cfg['vpp'],
                 b"%s/socket_%d" % (six.ensure_binary(self.tempdir),
                                    cfg['id']))
+
+        #
+        # create packet streams for 'no-such-tunnel' exception
+        #
+        for cfg in cfgs.values():
+            pkt = (Ether(src=self.pg0.remote_mac,
+                         dst=self.pg0.local_mac) /
+                   IP(src=self.pg0.remote_ip4, dst=self.pg0.local_ip4))
+            if (cfg['udp']):
+                pkt = pkt / UDP(sport=666, dport=4500)
+            pkt = (pkt / ESP(spi=cfg['spi'], seq=3) /
+                   Raw('\xa5' * 100))
+            cfg['pkts'] = [pkt]
 
         #
         # send packets for each SPI we expect to be punted
@@ -854,7 +874,13 @@ class TestExceptionPuntSocket(TestPuntSocket):
         #
         for cfg in cfgs.values():
             rx = cfg['sock'].close()
-            self.verify_esp_pkts(rx, len(cfg['pkts']), cfg['spi'])
+            self.verify_esp_pkts(rx, len(cfg['pkts']),
+                                 cfg['spi'], cfg['udp'])
+
+        #
+        # socket deregister
+        #
+        for cfg in cfgs.values():
             self.vapi.punt_socket_deregister(cfg['vpp'])
 
 
@@ -1053,8 +1079,7 @@ class TestPunt(VppTestCase):
         ip_1_2 = VppIpRoute(self, "1::2", 128,
                             [VppRoutePath(self.pg3.remote_ip6,
                                           self.pg3.sw_if_index,
-                                          proto=DpoProto.DPO_PROTO_IP6)],
-                            is_ip6=1)
+                                          proto=DpoProto.DPO_PROTO_IP6)])
         ip_1_2.add_vpp_config()
 
         p4 = (Ether(src=self.pg2.remote_mac,

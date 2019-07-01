@@ -23,8 +23,6 @@ global_types = {}
 def global_type_add(name, obj):
     '''Add new type to the dictionary of types '''
     type_name = 'vl_api_' + name + '_t'
-    if type_name in global_types:
-        raise KeyError('Type is already defined: {}'.format(name))
     global_types[type_name] = obj
 
 
@@ -79,7 +77,7 @@ class VPPAPILexer(object):
     t_ignore_LINE_COMMENT = '//.*'
 
     def t_NUM(self, t):
-        r'0[xX][0-9a-fA-F]+|\d+'
+        r'0[xX][0-9a-fA-F]+|-?\d+'
         base = 16 if t.value.startswith('0x') else 10
         t.value = int(t.value, base)
         return t

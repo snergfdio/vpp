@@ -17,6 +17,7 @@
 #include <vnet/ipsec/esp.h>
 #include <vnet/udp/udp.h>
 #include <vnet/fib/fib_table.h>
+#include <vnet/ipsec/ipsec_tun.h>
 
 /**
  * @brief
@@ -80,14 +81,14 @@ ipsec_sa_stack (ipsec_sa_t * sa)
 
   fib_entry_contribute_forwarding (sa->fib_entry_index, fct, &tmp);
 
-  dpo_stack_from_node ((ipsec_sa_is_set_IS_TUNNEL_V6 (sa) ?
-			im->ah6_encrypt_node_index :
-			im->ah4_encrypt_node_index),
-		       &sa->dpo[IPSEC_PROTOCOL_AH], &tmp);
-  dpo_stack_from_node ((ipsec_sa_is_set_IS_TUNNEL_V6 (sa) ?
-			im->esp6_encrypt_node_index :
-			im->esp4_encrypt_node_index),
-		       &sa->dpo[IPSEC_PROTOCOL_ESP], &tmp);
+  if (IPSEC_PROTOCOL_AH == sa->protocol)
+    dpo_stack_from_node ((ipsec_sa_is_set_IS_TUNNEL_V6 (sa) ?
+			  im->ah6_encrypt_node_index :
+			  im->ah4_encrypt_node_index), &sa->dpo, &tmp);
+  else
+    dpo_stack_from_node ((ipsec_sa_is_set_IS_TUNNEL_V6 (sa) ?
+			  im->esp6_encrypt_node_index :
+			  im->esp4_encrypt_node_index), &sa->dpo, &tmp);
   dpo_reset (&tmp);
 }
 
@@ -292,7 +293,7 @@ ipsec_sa_del (u32 id)
     {
       clib_warning ("sa_id %u used in policy", sa->id);
       /* sa used in policy */
-      return VNET_API_ERROR_SYSCALL_ERROR_1;
+      return VNET_API_ERROR_RSRC_IN_USE;
     }
   hash_unset (im->sa_index_by_sa_id, sa->id);
   err = ipsec_call_add_del_callbacks (im, sa, sa_index, 0);
@@ -305,8 +306,7 @@ ipsec_sa_del (u32 id)
       fib_table_entry_special_remove
 	(sa->tx_fib_index,
 	 fib_entry_get_prefix (sa->fib_entry_index), FIB_SOURCE_RR);
-      dpo_reset (&sa->dpo[IPSEC_PROTOCOL_AH]);
-      dpo_reset (&sa->dpo[IPSEC_PROTOCOL_ESP]);
+      dpo_reset (&sa->dpo);
     }
   vnet_crypto_key_del (vm, sa->crypto_key_index);
   vnet_crypto_key_del (vm, sa->integ_key_index);
@@ -314,12 +314,20 @@ ipsec_sa_del (u32 id)
   return 0;
 }
 
+void
+ipsec_sa_clear (index_t sai)
+{
+  vlib_zero_combined_counter (&ipsec_sa_counters, sai);
+}
+
 u8
 ipsec_is_sa_used (u32 sa_index)
 {
   ipsec_main_t *im = &ipsec_main;
+  ipsec_tun_protect_t *itp;
   ipsec_tunnel_if_t *t;
   ipsec_policy_t *p;
+  u32 sai;
 
   /* *INDENT-OFF* */
   pool_foreach(p, im->policies, ({
@@ -336,7 +344,19 @@ ipsec_is_sa_used (u32 sa_index)
     if (t->output_sa_index == sa_index)
       return 1;
   }));
+
+  /* *INDENT-OFF* */
+  pool_foreach(itp, ipsec_protect_pool, ({
+    FOR_EACH_IPSEC_PROTECT_INPUT_SAI(itp, sai,
+    ({
+      if (sai == sa_index)
+        return 1;
+    }));
+    if (itp->itp_out_sa == sa_index)
+      return 1;
+  }));
   /* *INDENT-ON* */
+
 
   return 0;
 }
@@ -416,7 +436,7 @@ ipsec_sa_back_walk (fib_node_t * node, fib_node_back_walk_ctx_t * ctx)
 }
 
 /*
- * Virtual function table registered by MPLS GRE tunnels
+ * Virtual function table registered by SAs
  * for participation in the FIB object graph.
  */
 const static fib_node_vft_t ipsec_sa_vft = {

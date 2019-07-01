@@ -422,6 +422,9 @@ tcp_update_burst_snd_vars (tcp_connection_t * tc)
 		     &tc->snd_opts);
 
   tcp_update_rcv_wnd (tc);
+
+  if (tc->flags & TCP_CONN_RATE_SAMPLE)
+    tc->flags |= TCP_CONN_TRACK_BURST;
 }
 
 void
@@ -502,6 +505,11 @@ tcp_make_ack_i (tcp_connection_t * tc, vlib_buffer_t * b, tcp_state_t state,
 
   tcp_options_write ((u8 *) (th + 1), snd_opts);
   vnet_buffer (b)->tcp.connection_index = tc->c_c_index;
+
+  if (wnd == 0)
+    tcp_zero_rwnd_sent_on (tc);
+  else
+    tcp_zero_rwnd_sent_off (tc);
 }
 
 /**
@@ -1129,8 +1137,17 @@ u32
 tcp_session_push_header (transport_connection_t * tconn, vlib_buffer_t * b)
 {
   tcp_connection_t *tc = (tcp_connection_t *) tconn;
+
+  if (tc->flags & TCP_CONN_TRACK_BURST)
+    {
+      tcp_bt_check_app_limited (tc);
+      tcp_bt_track_tx (tc);
+      tc->flags &= ~TCP_CONN_TRACK_BURST;
+    }
+
   tcp_push_hdr_i (tc, b, tc->snd_nxt, /* compute opts */ 0, /* burst */ 1,
 		  /* update_snd_nxt */ 1);
+
   tc->snd_una_max = seq_max (tc->snd_nxt, tc->snd_una_max);
   tcp_validate_txf_size (tc, tc->snd_una_max - tc->snd_una);
   /* If not tracking an ACK, start tracking */
@@ -1251,6 +1268,28 @@ tcp_timer_delack_handler (u32 index)
   tc = tcp_connection_get (index, thread_index);
   tc->timers[TCP_TIMER_DELACK] = TCP_TIMER_HANDLE_INVALID;
   tcp_send_ack (tc);
+}
+
+/**
+ * Send Window Update ACK,
+ * ensuring that it will be sent once, if RWND became non-zero,
+ * after zero RWND has been advertised in ACK before
+ */
+void
+tcp_send_window_update_ack (tcp_connection_t * tc)
+{
+  tcp_worker_ctx_t *wrk = tcp_get_worker (tc->c_thread_index);
+  u32 win;
+
+  if (tcp_zero_rwnd_sent (tc))
+    {
+      win = tcp_window_to_advertise (tc, tc->state);
+      if (win > 0)
+	{
+	  tcp_zero_rwnd_sent_off (tc);
+	  tcp_program_ack (wrk, tc);
+	}
+    }
 }
 
 /**
@@ -1418,7 +1457,11 @@ tcp_prepare_retransmit_segment (tcp_worker_ctx_t * wrk,
     return 0;
 
   if (tcp_in_fastrecovery (tc))
-    tc->snd_rxt_bytes += n_bytes;
+    {
+      tc->snd_rxt_bytes += n_bytes;
+      if (tc->flags & TCP_CONN_RATE_SAMPLE)
+	tcp_bt_track_rxt (tc, start, start + n_bytes);
+    }
 
 done:
   TCP_EVT_DBG (TCP_EVT_CC_RTX, tc, offset, n_bytes);
@@ -1539,6 +1582,9 @@ tcp_timer_retransmit_handler_i (u32 index, u8 is_syn)
 	tcp_rxt_timeout_cc (tc);
       else
 	scoreboard_clear (&tc->sack_sb);
+
+      if (tc->flags & TCP_CONN_RATE_SAMPLE)
+	tcp_bt_flush_samples (tc);
 
       /* If we've sent beyond snd_congestion, update it */
       tc->snd_congestion = seq_max (tc->snd_nxt, tc->snd_congestion);
@@ -1904,12 +1950,13 @@ tcp_fast_retransmit_no_sack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
   ASSERT (tcp_in_fastrecovery (tc));
   TCP_EVT_DBG (TCP_EVT_CC_EVT, tc, 0);
 
+  snd_space = tcp_available_cc_snd_space (tc);
+
   if (!tcp_fastrecovery_first (tc))
     goto send_unsent;
 
   /* RFC 6582: [If a partial ack], retransmit the first unacknowledged
    * segment. */
-  snd_space = tc->sack_sb.last_bytes_delivered;
   while (snd_space > 0 && n_segs < burst_size)
     {
       n_written = tcp_prepare_retransmit_segment (wrk, tc, offset,
@@ -1932,7 +1979,6 @@ tcp_fast_retransmit_no_sack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
 send_unsent:
 
   /* RFC 6582: Send a new segment if permitted by the new value of cwnd. */
-  snd_space = tcp_available_cc_snd_space (tc);
   if (snd_space < tc->snd_mss || tc->snd_mss == 0)
     goto done;
 
@@ -2060,6 +2106,13 @@ tcp_output_handle_packet (tcp_connection_t * tc0, vlib_buffer_t * b0,
       *error0 = TCP_ERROR_INVALID_CONNECTION;
       *next0 = TCP_OUTPUT_NEXT_DROP;
       return;
+    }
+
+  /* If next_index is not drop use it */
+  if (tc0->next_node_index)
+    {
+      *next0 = tc0->next_node_index;
+      vnet_buffer (b0)->tcp.next_node_opaque = tc0->next_node_opaque;
     }
 
   vnet_buffer (b0)->sw_if_index[VLIB_TX] = tc0->c_fib_index;

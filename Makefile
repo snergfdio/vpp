@@ -226,6 +226,7 @@ help:
 	@echo " test-cov            - generate code coverage report for test framework"
 	@echo " test-wipe-cov       - wipe code coverage report for test framework"
 	@echo " test-checkstyle     - check PEP8 compliance for test framework"
+	@echo " test-refresh-deps   - refresh the Python dependencies for the tests"
 	@echo ""
 	@echo "Make Arguments:"
 	@echo " V=[0|1]                  - set build verbosity level"
@@ -445,7 +446,7 @@ test-wipe-doc:
 	@make -C test wipe-doc
 
 test-cov:
-	@make -C $(BR) PLATFORM=vpp TAG=vpp_gcov vom-install japi-install
+	@make -C $(BR) PLATFORM=vpp TAG=vpp_gcov vom-install
 	$(eval EXTENDED_TESTS=yes)
 	$(call test,vpp,vpp_gcov,cov)
 
@@ -454,6 +455,9 @@ test-wipe-cov:
 
 test-checkstyle:
 	@make -C test checkstyle
+
+test-refresh-deps:
+	@make -C test refresh-deps
 
 retest:
 	$(call test,vpp,vpp,retest)

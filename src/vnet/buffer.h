@@ -188,8 +188,8 @@ typedef struct
 	  /* in/out variables */
 	  struct
 	  {
-	    u32 next_index;	/* index of next node - ignored if "feature" node */
-	    u32 error_next_index;	/* index of next node if error - ignored if 'feature' node */
+	    u32 next_index;	/* index of next node - used by custom apps */
+	    u32 error_next_index;	/* index of next node if error - used by custom apps */
 	    u16 estimated_mtu;	/* estimated MTU calculated during reassembly */
 	    u16 owner_thread_index;
 	  };
@@ -276,6 +276,7 @@ typedef struct
     struct
     {
       u32 sad_index;
+      u32 protect_index;
     } ipsec;
 
     /* MAP */
@@ -326,7 +327,11 @@ typedef struct
     struct
     {
       u32 connection_index;
-      u32 seq_number;
+      union
+      {
+	u32 seq_number;
+	u32 next_node_opaque;
+      };
       u32 seq_end;
       u32 ack_number;
       u16 hdr_offset;		/**< offset relative to ip hdr */
