@@ -339,12 +339,12 @@ af_unix_echo (void)
       errno_val = errno;
       perror ("ERROR in af_unix_echo(): read() failed");
       fprintf (stderr, "SERVER: ERROR: read(af_unix_client_fd %d (0x%x), "
-	       "\"%s\", nbytes %lu) failed (errno = %d)!\n",
-	       af_unix_client_fd, af_unix_client_fd, buffer, nbytes,
-	       errno_val);
+	       "nbytes %lu) failed (errno = %d)!\n", af_unix_client_fd,
+	       af_unix_client_fd, nbytes, errno_val);
       goto done;
     }
-
+  /* Make the buffer is NULL-terminated. */
+  buffer[sizeof (buffer) - 1] = 0;
   printf ("SERVER (AF_UNIX): RX (%d bytes) - '%s'\n", rv, buffer);
 
   if (!strncmp (SOCK_TEST_MIXED_EPOLL_DATA, (const char *) buffer, nbytes))

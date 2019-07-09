@@ -288,6 +288,11 @@ typedef enum _tcp_cc_ack_t
   TCP_CC_PARTIALACK
 } tcp_cc_ack_t;
 
+typedef enum tcp_cc_event_
+{
+  TCP_CC_EVT_START_TX,
+} tcp_cc_event_t;
+
 typedef struct _tcp_connection
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
@@ -372,6 +377,7 @@ typedef struct _tcp_connection
 
   u32 last_fib_check;	/**< Last time we checked fib route for peer */
   u16 mss;		/**< Our max seg size that includes options */
+  u32 timestamp_delta;
 } tcp_connection_t;
 
 /* *INDENT-OFF* */
@@ -379,13 +385,16 @@ struct _tcp_cc_algorithm
 {
   const char *name;
   uword (*unformat_cfg) (unformat_input_t * input);
+  void (*init) (tcp_connection_t * tc);
+  void (*cleanup) (tcp_connection_t * tc);
   void (*rcv_ack) (tcp_connection_t * tc, tcp_rate_sample_t *rs);
   void (*rcv_cong_ack) (tcp_connection_t * tc, tcp_cc_ack_t ack,
 			tcp_rate_sample_t *rs);
   void (*congestion) (tcp_connection_t * tc);
+  void (*loss) (tcp_connection_t * tc);
   void (*recovered) (tcp_connection_t * tc);
-  void (*init) (tcp_connection_t * tc);
-  void (*cleanup) (tcp_connection_t * tc);
+  void (*undo_recovery) (tcp_connection_t * tc);
+  void (*event) (tcp_connection_t *tc, tcp_cc_event_t evt);
 };
 /* *INDENT-ON* */
 
@@ -900,7 +909,7 @@ int tcp_fast_retransmit_sack (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
 int tcp_fast_retransmit (tcp_worker_ctx_t * wrk, tcp_connection_t * tc,
 			 u32 burst_size);
 void tcp_cc_init_congestion (tcp_connection_t * tc);
-void tcp_cc_fastrecovery_exit (tcp_connection_t * tc);
+void tcp_cc_fastrecovery_clear (tcp_connection_t * tc);
 
 fib_node_index_t tcp_lookup_rmt_in_fib (tcp_connection_t * tc);
 
@@ -918,6 +927,16 @@ always_inline u32
 tcp_time_now_w_thread (u32 thread_index)
 {
   return tcp_main.wrk_ctx[thread_index].time_now;
+}
+
+/**
+ * Generate timestamp for tcp connection
+ */
+always_inline u32
+tcp_tstamp (tcp_connection_t * tc)
+{
+  return (tcp_main.wrk_ctx[tc->c_thread_index].time_now -
+	  tc->timestamp_delta);
 }
 
 always_inline f64
@@ -956,6 +975,32 @@ tcp_cc_rcv_cong_ack (tcp_connection_t * tc, tcp_cc_ack_t ack_type,
 		     tcp_rate_sample_t * rs)
 {
   tc->cc_algo->rcv_cong_ack (tc, ack_type, rs);
+}
+
+static inline void
+tcp_cc_loss (tcp_connection_t * tc)
+{
+  tc->cc_algo->loss (tc);
+}
+
+static inline void
+tcp_cc_recovered (tcp_connection_t * tc)
+{
+  tc->cc_algo->recovered (tc);
+}
+
+static inline void
+tcp_cc_undo_recovery (tcp_connection_t * tc)
+{
+  if (tc->cc_algo->undo_recovery)
+    tc->cc_algo->undo_recovery (tc);
+}
+
+static inline void
+tcp_cc_event (tcp_connection_t * tc, tcp_cc_event_t evt)
+{
+  if (tc->cc_algo->event)
+    tc->cc_algo->event (tc, evt);
 }
 
 always_inline void

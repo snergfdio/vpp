@@ -737,9 +737,9 @@ increment_v6_address (vl_api_ip6_address_t * i)
 static void
 increment_address (vl_api_address_t * a)
 {
-  if (a->af == ADDRESS_IP4)
+  if (clib_net_to_host_u32 (a->af) == ADDRESS_IP4)
     increment_v4_address (&a->un.ip4);
-  else if (a->af == ADDRESS_IP6)
+  else if (clib_net_to_host_u32 (a->af) == ADDRESS_IP6)
     increment_v6_address (&a->un.ip6);
 }
 
@@ -18921,7 +18921,7 @@ static void
 vl_api_mpls_route_details_t_handler (vl_api_mpls_route_details_t * mp)
 {
   vat_main_t *vam = &vat_main;
-  int count = ntohl (mp->mr_route.mr_n_paths);
+  int count = (int) clib_net_to_host_u32 (mp->mr_route.mr_n_paths);
   vl_api_fib_path_t *fp;
   int i;
 
@@ -18941,7 +18941,7 @@ static void vl_api_mpls_route_details_t_handler_json
   (vl_api_mpls_route_details_t * mp)
 {
   vat_main_t *vam = &vat_main;
-  int count = ntohl (mp->mr_route.mr_n_paths);
+  int count = (int) clib_host_to_net_u32 (mp->mr_route.mr_n_paths);
   vat_json_node_t *node = NULL;
   vl_api_fib_path_t *fp;
   int i;

@@ -508,7 +508,7 @@ tcp_update_rtt (tcp_connection_t * tc, u32 ack)
    * seq_lt (tc->snd_una, ack). This is a condition for calling update_rtt */
   else if (tcp_opts_tstamp (&tc->rcv_opts) && tc->rcv_opts.tsecr)
     {
-      u32 now = tcp_time_now_w_thread (tc->c_thread_index);
+      u32 now = tcp_tstamp (tc);
       mrtt = clib_max (now - tc->rcv_opts.tsecr, 1);
     }
 
@@ -1185,12 +1185,10 @@ tcp_cc_recovery_exit (tcp_connection_t * tc)
 
 #ifndef CLIB_MARCH_VARIANT
 void
-tcp_cc_fastrecovery_exit (tcp_connection_t * tc)
+tcp_cc_fastrecovery_clear (tcp_connection_t * tc)
 {
-  tc->cc_algo->recovered (tc);
   tc->snd_rxt_bytes = 0;
   tc->rcv_dupacks = 0;
-  tc->snd_rxt_bytes = 0;
   tc->rtt_ts = 0;
 
   tcp_fastrecovery_off (tc);
@@ -1213,8 +1211,9 @@ tcp_cc_congestion_undo (tcp_connection_t * tc)
     }
   else if (tcp_in_fastrecovery (tc))
     {
-      tcp_cc_fastrecovery_exit (tc);
+      tcp_cc_fastrecovery_clear (tc);
     }
+  tcp_cc_undo_recovery (tc);
   ASSERT (tc->rto_boff == 0);
   TCP_EVT_DBG (TCP_EVT_CC_EVT, tc, 5);
 }
@@ -1255,7 +1254,10 @@ tcp_cc_recover (tcp_connection_t * tc)
   if (tcp_in_recovery (tc))
     tcp_cc_recovery_exit (tc);
   else if (tcp_in_fastrecovery (tc))
-    tcp_cc_fastrecovery_exit (tc);
+    {
+      tcp_cc_recovered (tc);
+      tcp_cc_fastrecovery_clear (tc);
+    }
 
   ASSERT (tc->rto_boff == 0);
   ASSERT (!tcp_in_cong_recovery (tc));

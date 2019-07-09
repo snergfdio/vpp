@@ -332,6 +332,7 @@ vl_api_gbp_ext_itf_add_del_t_print (vl_api_gbp_ext_itf_add_del_t * a,
   s = format (s, "sw_if_index %d ", ntohl (a->ext_itf.sw_if_index));
   s = format (s, "bd_id %d ", ntohl (a->ext_itf.bd_id));
   s = format (s, "rd_id %d ", ntohl (a->ext_itf.rd_id));
+  s = format (s, "flags %x ", ntohl (a->ext_itf.flags));
 
   s = format (s, "\n");
 

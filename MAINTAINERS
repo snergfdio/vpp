@@ -87,6 +87,13 @@ F:	src/vnet/devices/tap/
 F:	src/vnet/devices/virtio/node.c
 F:	src/vnet/devices/virtio/device.c
 
+VNET Etherent
+I:	ethernet
+M:	Dave Barach <dave@barachs.net>
+M:	Damjan Marion <damarion@cisco.com>
+M:	Neale Ranns <nranns@cisco.com>
+F:	src/vnet/ethernet/
+
 VNET Feature Arcs
 I:	feature
 M:	Dave Barach <dave@barachs.net>
@@ -201,6 +208,12 @@ VNET VXLAN-GPE
 I:	vxlan-gpe
 M:	Hongjun Ni <hongjun.ni@intel.com>
 F:	src/vnet/vxlan-gpe/
+
+VNET VXLAN-GBP
+I:	vxlan-gbp
+M:	Mohsin Kazmi <sykazmi@cisco.com>
+M:	Neale Ranns <nranns@cisco.com>
+F:	src/vnet/vxlan-gbp/
 
 VNET IPIP
 I:	ipip
@@ -437,9 +450,9 @@ M:	Ole Troan <ot@cisco.com>
 M:	Paul Vinciguerra <pvinci@vinciconsulting.com>
 F:	src/vpp-api/python
 
-VNET SCTP
+Plugin - SCTP
 I:	sctp
-F:	src/vnet/sctp
+F:	src/plugins/sctp/
 
 THE REST
 I:	misc

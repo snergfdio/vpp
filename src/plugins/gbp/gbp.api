@@ -235,6 +235,7 @@ enum gbp_subnet_type
   GBP_API_SUBNET_STITCHED_INTERNAL,
   GBP_API_SUBNET_STITCHED_EXTERNAL,
   GBP_API_SUBNET_L3_OUT,
+  GBP_API_SUBNET_ANON_L3_OUT,
 };
 
 typeonly define gbp_subnet
@@ -392,11 +393,18 @@ define gbp_vxlan_tunnel_details
   vl_api_gbp_vxlan_tunnel_t tunnel;
 };
 
+enum gbp_ext_itf_flags
+{
+  GBP_API_EXT_ITF_F_NONE = 0,
+  GBP_API_EXT_ITF_F_ANON = 1,
+};
+
 typeonly define gbp_ext_itf
 {
   u32 sw_if_index;
   u32 bd_id;
   u32 rd_id;
+  vl_api_gbp_ext_itf_flags_t flags;
 };
 
 manual_print autoreply define gbp_ext_itf_add_del

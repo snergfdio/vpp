@@ -14,6 +14,7 @@ import re
 from multiprocessing import Process, Pipe, cpu_count
 from multiprocessing.queues import Queue
 from multiprocessing.managers import BaseManager
+import framework
 from framework import VppTestRunner, running_extended_tests, VppTestCase, \
     get_testcase_doc_name, get_test_description, PASS, FAIL, ERROR, SKIP, \
     TEST_RUN
@@ -729,11 +730,12 @@ if __name__ == '__main__':
     debug = os.getenv("DEBUG", "n").lower() in ["gdb", "gdbserver"]
 
     debug_core = os.getenv("DEBUG", "").lower() == "core"
-    compress_core = os.getenv("CORE_COMPRESS", "").lower() in ("y", "yes", "1")
+    compress_core = framework.BoolEnvironmentVariable("CORE_COMPRESS")
 
-    step = os.getenv("STEP", "n").lower() in ("y", "yes", "1")
+    step = framework.BoolEnvironmentVariable("STEP")
+    force_foreground = framework.BoolEnvironmentVariable("FORCE_FOREGROUND")
 
-    run_interactive = debug or step
+    run_interactive = debug or step or force_foreground
 
     test_jobs = os.getenv("TEST_JOBS", "1").lower()  # default = 1 process
     if test_jobs == 'auto':
@@ -806,6 +808,7 @@ if __name__ == '__main__':
 
     if run_interactive and suites:
         # don't fork if requiring interactive terminal
+        print('Running tests in foreground in the current process')
         full_suite = unittest.TestSuite()
         map(full_suite.addTests, suites)
         result = VppTestRunner(verbosity=verbose,
@@ -824,6 +827,8 @@ if __name__ == '__main__':
 
         sys.exit(not was_successful)
     else:
+        print('Running each VPPTestCase in a separate background process'
+              ' with {} parallel process(es)'.format(concurrent_tests))
         exit_code = 0
         while suites and attempts > 0:
             results = run_forked(suites)

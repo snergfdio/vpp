@@ -31,6 +31,7 @@
 #include <gbp/gbp_bridge_domain.h>
 #include <gbp/gbp_route_domain.h>
 #include <gbp/gbp_ext_itf.h>
+#include <gbp/gbp_contract.h>
 
 #include <vlibapi/api.h>
 #include <vlibmemory/api.h>
@@ -245,7 +246,9 @@ gbp_endpoint_send_details (index_t gei, void *args)
   mp->endpoint.n_ips = n_ips;
   mp->endpoint.flags = gbp_endpoint_flags_encode (gef->gef_flags);
   mp->handle = htonl (gei);
-  mp->age = vlib_time_now (vlib_get_main ()) - ge->ge_last_time;
+  mp->age =
+    clib_host_to_net_f64 (vlib_time_now (vlib_get_main ()) -
+			  ge->ge_last_time);
   mac_address_encode (&ge->ge_key.gek_mac, mp->endpoint.mac);
 
   vec_foreach_index (ii, ge->ge_key.gek_ips)
@@ -403,6 +406,9 @@ gub_subnet_type_from_api (vl_api_gbp_subnet_type_t a, gbp_subnet_type_t * t)
     case GBP_API_SUBNET_L3_OUT:
       *t = GBP_SUBNET_L3_OUT;
       return (0);
+    case GBP_API_SUBNET_ANON_L3_OUT:
+      *t = GBP_SUBNET_ANON_L3_OUT;
+      return (0);
     case GBP_API_SUBNET_STITCHED_INTERNAL:
       *t = GBP_SUBNET_STITCHED_INTERNAL;
       return (0);
@@ -459,6 +465,9 @@ gub_subnet_type_to_api (gbp_subnet_type_t t)
       break;
     case GBP_SUBNET_L3_OUT:
       a = GBP_API_SUBNET_L3_OUT;
+      break;
+    case GBP_SUBNET_ANON_L3_OUT:
+      a = GBP_API_SUBNET_ANON_L3_OUT;
       break;
     }
 
@@ -726,7 +735,8 @@ vl_api_gbp_ext_itf_add_del_t_handler (vl_api_gbp_ext_itf_add_del_t * mp)
 
   if (mp->is_add)
     rv = gbp_ext_itf_add (sw_if_index,
-			  ntohl (ext_itf->bd_id), ntohl (ext_itf->rd_id));
+			  ntohl (ext_itf->bd_id), ntohl (ext_itf->rd_id),
+			  ntohl (ext_itf->flags));
   else
     rv = gbp_ext_itf_delete (sw_if_index);
 
@@ -750,6 +760,7 @@ gbp_ext_itf_send_details (gbp_ext_itf_t * gx, void *args)
   mp->_vl_msg_id = ntohs (VL_API_GBP_EXT_ITF_DETAILS + GBP_MSG_BASE);
   mp->context = ctx->context;
 
+  mp->ext_itf.flags = ntohl (gx->gx_flags);
   mp->ext_itf.bd_id = ntohl (gbp_bridge_domain_get_bd_id (gx->gx_bd));
   mp->ext_itf.rd_id = ntohl (gbp_route_domain_get_rd_id (gx->gx_rd));
   mp->ext_itf.sw_if_index = ntohl (gx->gx_itf);
