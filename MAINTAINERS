@@ -199,6 +199,11 @@ I:	tcp
 M:	Florin Coras <fcoras@cisco.com>
 F:	src/vnet/tcp
 
+VNET UDP
+I:	udp
+M:	Florin Coras <fcoras@cisco.com>
+F:	src/vnet/udp
+
 VNET VXLAN
 I:	vxlan
 M:	John Lo <loj@cisco.com>
@@ -379,6 +384,11 @@ VPP Executable
 I:	vpp
 M:	Dave Barach <dave@barachs.net>
 F:	src/vpp/
+
+Emacs templates
+I:	emacs
+M:	Dave Barach <dave@barachs.net>
+F:	extras/emacs/
 
 Graphical Event Viewer
 I:	g2
