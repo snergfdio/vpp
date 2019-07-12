@@ -278,11 +278,10 @@ static void vl_api_ipsec_spd_entry_add_del_t_handler
   p.is_ipv6 = (itype == IP46_TYPE_IP6);
 
   p.protocol = mp->entry.protocol;
-  /* leave the ports in network order */
-  p.rport.start = mp->entry.remote_port_start;
-  p.rport.stop = mp->entry.remote_port_stop;
-  p.lport.start = mp->entry.local_port_start;
-  p.lport.stop = mp->entry.local_port_stop;
+  p.rport.start = ntohs (mp->entry.remote_port_start);
+  p.rport.stop = ntohs (mp->entry.remote_port_stop);
+  p.lport.start = ntohs (mp->entry.local_port_start);
+  p.lport.stop = ntohs (mp->entry.local_port_stop);
 
   rv = ipsec_spd_action_decode (mp->entry.policy, &p.policy);
 
@@ -514,12 +513,13 @@ static void vl_api_ipsec_sad_entry_add_del_t_handler
   ip_address_decode (&mp->entry.tunnel_dst, &tun_dst);
 
   if (mp->is_add)
-    rv = ipsec_sa_add (id, spi, proto,
-		       crypto_alg, &crypto_key,
-		       integ_alg, &integ_key, flags,
-		       0, mp->entry.salt, &tun_src, &tun_dst, &sa_index);
+    rv = ipsec_sa_add_and_lock (id, spi, proto,
+				crypto_alg, &crypto_key,
+				integ_alg, &integ_key, flags,
+				0, mp->entry.salt, &tun_src, &tun_dst,
+				&sa_index);
   else
-    rv = ipsec_sa_del (id);
+    rv = ipsec_sa_unlock_id (id);
 
 #else
   rv = VNET_API_ERROR_UNIMPLEMENTED;
@@ -616,10 +616,10 @@ send_ipsec_spd_details (ipsec_policy_t * p, vl_api_registration_t * reg,
 		     &mp->entry.remote_address_start);
   ip_address_encode (&p->raddr.stop, IP46_TYPE_ANY,
 		     &mp->entry.remote_address_stop);
-  mp->entry.local_port_start = p->lport.start;
-  mp->entry.local_port_stop = p->lport.stop;
-  mp->entry.remote_port_start = p->rport.start;
-  mp->entry.remote_port_stop = p->rport.stop;
+  mp->entry.local_port_start = htons (p->lport.start);
+  mp->entry.local_port_stop = htons (p->lport.stop);
+  mp->entry.remote_port_start = htons (p->rport.start);
+  mp->entry.remote_port_stop = htons (p->rport.stop);
   mp->entry.protocol = p->protocol;
   mp->entry.policy = ipsec_spd_action_encode (p->policy);
   mp->entry.sa_id = htonl (p->sa_id);

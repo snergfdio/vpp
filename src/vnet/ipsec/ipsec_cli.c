@@ -144,12 +144,12 @@ ipsec_sa_add_del_command_fn (vlib_main_t * vm,
     }
 
   if (is_add)
-    rv = ipsec_sa_add (id, spi, proto, crypto_alg,
-		       &ck, integ_alg, &ik, flags,
-		       0, clib_host_to_net_u32 (salt),
-		       &tun_src, &tun_dst, NULL);
+    rv = ipsec_sa_add_and_lock (id, spi, proto, crypto_alg,
+				&ck, integ_alg, &ik, flags,
+				0, clib_host_to_net_u32 (salt),
+				&tun_src, &tun_dst, NULL);
   else
-    rv = ipsec_sa_del (id);
+    rv = ipsec_sa_unlock_id (id);
 
   if (rv)
     error = clib_error_return (0, "failed");
@@ -294,16 +294,12 @@ ipsec_policy_add_del_command_fn (vlib_main_t * vm,
 	{
 	  p.lport.start = tmp;
 	  p.lport.stop = tmp2;
-	  p.lport.start = clib_host_to_net_u16 (p.lport.start);
-	  p.lport.stop = clib_host_to_net_u16 (p.lport.stop);
 	}
       else
 	if (unformat (line_input, "remote-port-range %u - %u", &tmp, &tmp2))
 	{
 	  p.rport.start = tmp;
 	  p.rport.stop = tmp2;
-	  p.rport.start = clib_host_to_net_u16 (p.rport.start);
-	  p.rport.stop = clib_host_to_net_u16 (p.rport.stop);
 	}
       else
 	{

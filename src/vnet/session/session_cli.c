@@ -68,7 +68,8 @@ format_session (u8 * s, va_list * args)
   if (verbose == 1)
     {
       u8 post_accept = ss->session_state >= SESSION_STATE_ACCEPTING;
-      u8 hasf = post_accept | session_tx_is_dgram (ss);
+      u8 hasf = post_accept
+	|| session_transport_service_type (ss) == TRANSPORT_SERVICE_CL;
       u32 rxf, txf;
 
       rxf = hasf ? svm_fifo_max_dequeue (ss->rx_fifo) : 0;
@@ -89,14 +90,14 @@ format_session (u8 * s, va_list * args)
   else if (ss->session_state == SESSION_STATE_LISTENING)
     {
       s = format (s, "%U%v", format_transport_listen_connection,
-		  tp, ss->connection_index, verbose, str);
+		  tp, ss->connection_index, ss->thread_index, verbose, str);
       if (verbose > 1)
 	s = format (s, "\n%U", format_session_fifos, ss, verbose);
     }
   else if (ss->session_state == SESSION_STATE_CONNECTING)
     {
       s = format (s, "%-40U%v", format_transport_half_open_connection,
-		  tp, ss->connection_index, str);
+		  tp, ss->connection_index, ss->thread_index, str);
     }
   else
     {

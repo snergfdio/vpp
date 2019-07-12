@@ -707,6 +707,7 @@ u8 *
 format_tls_listener (u8 * s, va_list * args)
 {
   u32 tc_index = va_arg (*args, u32);
+  u32 __clib_unused thread_index = va_arg (*args, u32);
   u32 __clib_unused verbose = va_arg (*args, u32);
   tls_ctx_t *ctx = tls_listener_ctx_get (tc_index);
   session_t *tls_listener;
@@ -726,6 +727,7 @@ u8 *
 format_tls_half_open (u8 * s, va_list * args)
 {
   u32 tc_index = va_arg (*args, u32);
+  u32 __clib_unused thread_index = va_arg (*args, u32);
   tls_ctx_t *ctx = tls_ctx_half_open_get (tc_index);
   s = format (s, "[TLS] half-open app %u", ctx->parent_app_wrk_index);
   tls_ctx_half_open_reader_unlock ();
@@ -787,7 +789,7 @@ tls_register_engine (const tls_engine_vft_t * vft, tls_engine_type_t type)
 static clib_error_t *
 tls_init (vlib_main_t * vm)
 {
-  u32 add_segment_size = (4096ULL << 20) - 1, first_seg_size = 32 << 20;
+  u32 add_segment_size = 256 << 20, first_seg_size = 32 << 20;
   vlib_thread_main_t *vtm = vlib_get_thread_main ();
   u32 num_threads, fifo_size = 128 << 10;
   vnet_app_attach_args_t _a, *a = &_a;

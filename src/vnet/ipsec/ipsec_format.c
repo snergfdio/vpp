@@ -187,13 +187,11 @@ format_ipsec_policy (u8 * s, va_list * args)
   s = format (s, "\n     local addr range %U - %U port range %u - %u",
 	      format_ip46_address, &p->laddr.start, ip_type,
 	      format_ip46_address, &p->laddr.stop, ip_type,
-	      clib_net_to_host_u16 (p->lport.start),
-	      clib_net_to_host_u16 (p->lport.stop));
+	      p->lport.start, p->lport.stop);
   s = format (s, "\n     remote addr range %U - %U port range %u - %u",
 	      format_ip46_address, &p->raddr.start, ip_type,
 	      format_ip46_address, &p->raddr.stop, ip_type,
-	      clib_net_to_host_u16 (p->rport.start),
-	      clib_net_to_host_u16 (p->rport.stop));
+	      p->rport.start, p->rport.stop);
 
   vlib_get_combined_counter (&ipsec_spd_policy_counters, pi, &counts);
   s = format (s, "\n     packets %u bytes %u", counts.packets, counts.bytes);
@@ -287,8 +285,8 @@ format_ipsec_sa (u8 * s, va_list * args)
 
   sa = pool_elt_at_index (im->sad, sai);
 
-  s = format (s, "[%d] sa 0x%x spi %u (0x%08x) mode %s%s protocol %s %U",
-	      sai, sa->id, sa->spi, sa->spi,
+  s = format (s, "[%d] sa %d (0x%x) spi %u (0x%08x) mode %s%s protocol %s %U",
+	      sai, sa->id, sa->id, sa->spi, sa->spi,
 	      ipsec_sa_is_set_IS_TUNNEL (sa) ? "tunnel" : "transport",
 	      ipsec_sa_is_set_IS_TUNNEL_V6 (sa) ? "-ip6" : "",
 	      sa->protocol ? "esp" : "ah", format_ipsec_sa_flags, sa->flags);
@@ -296,6 +294,7 @@ format_ipsec_sa (u8 * s, va_list * args)
   if (!(flags & IPSEC_FORMAT_DETAIL))
     goto done;
 
+  s = format (s, "\n   locks %d", sa->node.fn_locks);
   s = format (s, "\n   salt 0x%x", clib_net_to_host_u32 (sa->salt));
   s = format (s, "\n   seq %u seq-hi %u", sa->seq, sa->seq_hi);
   s = format (s, "\n   last-seq %u last-seq-hi %u window %U",
