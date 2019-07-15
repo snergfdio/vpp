@@ -85,6 +85,7 @@ jobs:
   ubuntu18:
     docker:
       - image: snergster/vpp-ubuntu18
+    resource_class: xlarge
     steps:
       - restore_cache:
           keys:
@@ -110,7 +111,7 @@ jobs:
           name: installdep
           command: |
             make UNATTENDED=yes install-dep
-      - run: unset CCACHE_READONLY;make pkg-deb
+      - run: unset CCACHE_READONLY;make pkg-deb;make test
       - run:
           name: ccache stats
           command: |
